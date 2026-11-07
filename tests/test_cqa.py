@@ -410,3 +410,35 @@ def test_malformed_model_response_is_rejected_with_usage(monkeypatch,payload):
     with pytest.raises(EvaluationValidationError) as error:
         ai_evaluator.evaluate({'language':'RU','channel':'agent chat','transcript':[]},default_checklist())
     assert error.value.usage['total_tokens'] == 7
+
+
+def test_appeals_workspace_lists_pending_and_resolved(client):
+    e=evaluated(client);a=appeal(client,e)
+    overview=client.get('/api/appeals',headers=SUPERVISOR).json()
+    assert overview['total'] == 1 and overview['pending'] == 1
+    assert overview['items'][0]['criterion_name'] == 'Установление контакта'
+    assert overview['items'][0]['conversation_available'] is True
+    client.post('/api/appeals/resolve',headers=SUPERVISOR,json={'conversation_id':'test-1','criterion_id':'01','appeal_id':a['id'],
+        'action':'REJECTED','resolution_comment':'Оценка подтверждена исходной репликой'})
+    overview=client.get('/api/appeals',headers=SUPERVISOR).json()
+    assert overview['pending'] == 0 and overview['items'][0]['status'] == 'REJECTED'
+
+
+def test_removed_conversation_appeal_remains_visible_without_broken_link(client):
+    e=evaluated(client);appeal(client,e)
+    store=client.app.state.store
+    store.import_data({'isSuccess':True,'data':{'records':[store.data['records']['test-2']]}})
+    item=client.get('/api/appeals',headers=SUPERVISOR).json()['items'][0]
+    assert item['status'] == 'SUPERSEDED' and item['conversation_available'] is False
+
+
+def test_appeals_workspace_respects_supervisor_token(client,monkeypatch):
+    monkeypatch.setenv('QA_SUPERVISOR_TOKEN','qa-test-token')
+    assert client.get('/api/appeals',headers=SUPERVISOR).status_code == 403
+    assert client.get('/api/appeals',headers={**SUPERVISOR,'X-Supervisor-Token':'qa-test-token'}).status_code == 200
+
+
+def test_paid_api_is_blocked_in_standard_tests():
+    from openai import OpenAI
+    with pytest.raises(AssertionError,match='disabled in ordinary tests'):
+        OpenAI(api_key='test-placeholder').chat.completions.create(model='gpt-4o',messages=[])

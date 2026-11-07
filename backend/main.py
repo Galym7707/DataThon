@@ -462,6 +462,25 @@ def create_app(store_path=None, dataset_file=None):
             store.save()
             return {"appeal": a, "evaluation": e}
 
+    @app.get("/api/appeals")
+    def appeals(request: Request):
+        role(request)
+        with store.lock:
+            items = []
+            for appeal in store.data["appeals"]:
+                cid = appeal["conversation_id"]
+                record = store.data["records"].get(cid)
+                versions = [store.data["evaluations"].get(cid), *store.data["history"].get(cid, [])]
+                evaluation = next((e for e in versions if e and e["id"] == appeal["evaluation_id"]), None)
+                criterion = next((c for c in (evaluation or {}).get("criteria", [])
+                                  if c["criterion_id"] == appeal["criterion_id"]), None)
+                items.append({**appeal, "criterion_name": (criterion or {}).get("name", appeal["criterion_id"]),
+                              "language": (record or {}).get("language"), "channel": (record or {}).get("channel"),
+                              "conversation_available": record is not None})
+            items.sort(key=lambda item: item["created_at"], reverse=True)
+            return {"items": copy.deepcopy(items), "total": len(items),
+                    "pending": sum(item["status"] == "PENDING" for item in items)}
+
     @app.get("/api/audit")
     def audit(request: Request, conversation_id: str | None = None):
         role(request, "supervisor")

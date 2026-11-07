@@ -2,6 +2,10 @@
 :root {
   color-scheme: light;
   --bg: #f4f7fa;
+  --nav-bg: #083c2f;
+  --nav-text: #deeee7;
+  --nav-active: #17634b;
+  --nav-accent: #9be1bb;
   --surface: #ffffff;
   --raised: #edf2f7;
   --line: #d7e0e9;
@@ -83,25 +87,6 @@
   --focus: #5ee5b3;
 }
 
-/* Keep working text readable in either palette. */
-.metric-label, .page-intro p { font-size: 12px; }
-.metric-note, .quiet, .budget { font-size: 11px; }
-.item-id, .item-preview, .criterion-name { font-size: 12px; }
-.item-bottom, .criterion-math, .criterion-number, .proof-time { font-size: 10px; }
-.criterion-reason, .proof, .score-note, .score-info p, .appeal-history { font-size: 11px; }
-.message-text { font-size: 13px; }
-.workspace-actions { flex-wrap: wrap; }
-.editor-grid { grid-template-columns: minmax(140px,1fr) 110px 75px 75px 31px; }
-.editor-grid:not(.with-scale) { grid-template-columns: minmax(140px,1fr) 110px 75px 31px; }
-.editor-rules { margin: 4px 0 12px; color: var(--text-secondary); }
-.editor-rules summary { cursor: pointer; font-size: 12px; padding: 7px 0; }
-.editor-rules[open] summary { margin-bottom: 10px; }
-#checklist-form { display: flex; flex-direction: column; max-height: calc(88svh - 48px); }
-#checklist-form > :not(#checklist-editor) { flex-shrink: 0; }
-#checklist-editor { flex: 1; min-height: 0; overflow-y: auto; padding-right: 8px; scrollbar-width: thin; scrollbar-color: var(--control-border) transparent; }
-#add-criterion { align-self: flex-start; margin-top: 8px; }
-.remove-criterion { grid-column: -2 / -1; }
-
 .theme-toggle {
   display: inline-flex;
   align-items: center;
@@ -114,7 +99,7 @@
   border-radius: 6px;
   background: var(--surface);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
 }

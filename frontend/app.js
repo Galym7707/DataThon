@@ -6,9 +6,11 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = (n, digits = 2) => n == null ? '—' : Number(n).toLocaleString('ru-RU', {maximumFractionDigits: digits});
 const labels = {Pending:'Без оценки', Evaluated:'Проверено', Stale:'Нужна переоценка', Evaluating:'Оценивается', PENDING:'Ожидает решения', APPROVED:'Удовлетворена', REJECTED:'Отклонена', SUPERSEDED:'Предыдущая версия'};
+const languageNames={RU:'Русский',KZ:'Қазақша',EN:'English'};
+function initialView() { const value=(window.location?.hash || '').slice(1);return ['appeals','analytics'].includes(value)?value:'conversations'; }
 function storedToken() { try { return sessionStorage.getItem('cqa-token') || ''; } catch { return ''; } }
-const state = {items:[], filtered:[], selected:null, detail:null, detailLoading:false, detailError:false, checklist:null, role:'supervisor', budget:{remaining:0}, busy:false, token:storedToken(), edit:[], audit:[], sequence:0};
-let toastTimer, searchTimer, loadSequence=0, filterSequence=0, audioSeekSequence=0, pendingAudioSeek;
+const state = {items:[], filtered:[], selected:null, detail:null, detailLoading:false, detailError:false, checklist:null, role:'supervisor', view:initialView(), appealItems:[], budget:{remaining:0}, busy:false, token:storedToken(), edit:[], audit:[], sequence:0};
+let toastTimer, searchTimer, loadSequence=0, filterSequence=0, viewSequence=0, audioSeekSequence=0, pendingAudioSeek;
 
 async function api(path, options = {}) {
   let response;
@@ -45,6 +47,7 @@ async function guarded(fn, form) {
 function applyRole() {
   document.body.classList.toggle('operator-mode', state.role === 'operator');
   $$('.supervisor-only').forEach(node => node.hidden = state.role !== 'supervisor');
+  if(state.role === 'operator' && state.view === 'analytics') void guarded(()=>setWorkspaceView('conversations'));
   if (state.detail) renderDetail();
 }
 function updateBudget(budget) {
@@ -79,11 +82,14 @@ async function loadData(keepSelection = true) {
   const chats = list.items.filter(r => r.channel === 'agent chat').length;
   $('#channel-metric').textContent = `${chats} чатов · ${list.total - chats} звонков`;
   $('#appeals-metric').textContent = list.items.reduce((sum,r) => sum+r.pending_appeals,0);
+  const pending=list.items.reduce((sum,r)=>sum+r.pending_appeals,0);
+  $('#nav-appeals-count').textContent=String(pending);$('#nav-appeals-count').hidden=pending===0;
   $('#group-badge').textContent = list.group;
   $('#checklist-version').textContent = 'Правила оценки';
   $('#data-status').textContent = `${list.total} диалогов`;
   await filterConversations({keepSelection,refreshDetail:true});
   applyRole();
+  if(state.view !== 'conversations') await setWorkspaceView(state.view,{updateHistory:false});
 }
 async function filterConversations({keepSelection=true,refreshDetail=false}={}) {
   const sequence=++filterSequence, query=$('#search').value.trim();
@@ -105,7 +111,7 @@ function renderList() {
   // Server-side search includes full transcript; otherwise filter the loaded index locally.
   state.filtered = state.items.filter(r => (!language || r.language === language) && (!channel || r.channel === channel) && (!status || (status === 'appeals' ? r.pending_appeals > 0 : r.status === status)) && (!search || state.searchIds?.has(r.id)));
   $('#filter-count').textContent = `${state.filtered.length} из ${state.items.length}`;
-  $('#conversation-list').innerHTML = state.filtered.length ? state.filtered.map(r => `<button class="conversation-item ${r.id === state.selected ? 'selected' : ''}" data-id="${escapeHTML(r.id)}" aria-pressed="${r.id === state.selected}"><div class="item-top"><span class="item-channel" aria-label="${r.channel === 'voice call' ? 'Звонок' : 'Чат'}">${r.channel === 'voice call' ? '◖))' : '▤'}</span><span class="item-id">${escapeHTML(r.id)}</span><span class="item-score ${r.score >= 80 && r.score != null ? 'good' : ''}">${fmt(r.score,1)}</span></div><p class="item-preview">${escapeHTML(r.preview)}</p><div class="item-bottom"><span class="language-chip">${r.language}</span><span class="status-dot ${r.status.toLowerCase()}"></span><span>${labels[r.status]}</span>${r.pending_appeals ? `<span class="appeal-mini">↗ ${r.pending_appeals}</span>` : ''}</div></button>`).join('') : '<div class="empty">Диалоги не найдены</div>';
+  $('#conversation-list').innerHTML = state.filtered.length ? state.filtered.map(r => `<button class="conversation-item ${r.id === state.selected ? 'selected' : ''}" data-id="${escapeHTML(r.id)}" aria-pressed="${r.id === state.selected}"><div class="item-top"><span class="item-channel" aria-label="${r.channel === 'voice call' ? 'Звонок' : 'Чат'}"><svg viewBox="0 0 24 24" aria-hidden="true">${r.channel === 'voice call' ? '<path d="M5 3h4l2 5-3 2a16 16 0 0 0 6 6l2-3 5 2v4a2 2 0 0 1-2 2C10 21 3 14 3 5a2 2 0 0 1 2-2Z"/>' : '<path d="M4 4h16v13H9l-5 4V4Z"/><path d="M8 8h8M8 12h5"/>'}</svg></span><span class="item-id">${escapeHTML(r.id)}</span><span class="item-score">${fmt(r.score,1)}</span></div><p class="item-preview">${escapeHTML(r.preview)}</p><div class="item-bottom"><span class="language-chip">${r.language}</span><span class="status-dot ${r.status.toLowerCase()}"></span><span>${labels[r.status]}</span>${r.pending_appeals ? `<span class="appeal-mini">↗ ${r.pending_appeals}</span>` : ''}</div></button>`).join('') : '<div class="empty">Диалоги не найдены</div>';
 }
 async function selectConversation(id) {
   const sequence = ++state.sequence;
@@ -113,7 +119,7 @@ async function selectConversation(id) {
   if(state.detail?.conversation_id !== id) {
     state.detail=null;state.detailLoading=true;state.detailError=false;
     resetAudio();renderList();renderDetail();
-    $('#transcript').scrollTop=0;$('#criteria').scrollTop=0;
+    $('#transcript').scrollTop=0;$('.inspector-body').scrollTop=0;
   }
   try {
     const detail = await api(`/api/conversations/${encodeURIComponent(id)}`);
@@ -161,6 +167,7 @@ function renderDetail() {
   const d = state.detail;
   $('[data-action="export"]').disabled=!d;
   if (!d) {
+    $('#deductions').hidden=true;$('#deductions').innerHTML='';
     $('#conversation-title').textContent=state.detailLoading ? 'Загрузка…' : 'Выберите диалог';
     $('#conversation-meta').textContent='ПЕРЕПИСКА';$('#message-count').textContent='—';
     $('#evaluation-status').textContent='Без оценки';$('#evaluation-status').className='badge';
@@ -171,6 +178,7 @@ function renderDetail() {
   }
   $('#conversation-title').textContent = d.conversation_id;
   $('#conversation-meta').textContent = `${d.channel === 'voice call' ? 'ЗАПИСЬ ЗВОНКА' : 'ПЕРЕПИСКА'} / ${d.language}${d.transcript[0].timestamp.includes('T') ? ' / ВРЕМЯ UTC' : ''}`;
+  $('#transcript').setAttribute('lang',{RU:'ru',KZ:'kk',EN:'en'}[d.language] || 'ru');
   $('#message-count').textContent = `${d.transcript.length} реплик`;
   const audio = $('#audio');
   $('#audio-panel').hidden = !d.audio_url;
@@ -179,6 +187,7 @@ function renderDetail() {
   else if (!audioSource && audio.getAttribute('src')) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
   renderTranscript();
   const e = d.evaluation, current = d.status === 'Evaluated';
+  renderDeductions(e,current);
   const status = $('#evaluation-status');
   status.textContent = labels[d.status];
   status.className = `badge ${current ? 'green' : d.status === 'Stale' ? 'amber' : ''}`;
@@ -294,14 +303,94 @@ function download(name,data) {
 }
 async function openAudit() {
   const data = await api('/api/audit'); state.audit = data.events;
-  const actions = {dataset_imported:'Датасет загружен',checklist_updated:'Чек-лист обновлён',evaluation_started:'Начата оценка',evaluation_completed:'Оценка завершена',evaluation_failed:'Ошибка оценки',appeal_submitted:'Подана апелляция',appeal_resolved:'Принято решение по апелляции'};
+  const actions = {dataset_imported:'Диалоги загружены',checklist_updated:'Правила обновлены',evaluation_started:'Начата оценка',evaluation_completed:'Оценка завершена',evaluation_failed:'Ошибка оценки',appeal_submitted:'Подана апелляция',appeal_resolved:'Принято решение по апелляции',test_result_archived:'Тестовая оценка перенесена в историю'};
   $('#audit-content').innerHTML = [...data.events].reverse().map(e => `<article class="audit-event"><time>${dateTime(e.timestamp)}<br>UTC+6</time><div><strong>${actions[e.action] || escapeHTML(e.action)}</strong><p>${escapeHTML(e.conversation_id || e.appeal?.conversation_id || '')}${e.appeal ? ` · ${escapeHTML(e.appeal.criterion_id)} · ${labels[e.appeal.status]}` : ''}</p>${e.appeal ? `<p>${escapeHTML(e.appeal.resolution_comment || e.appeal.comment)}</p>` : ''}${e.before && e.after ? `<p>Балл: ${fmt(e.before.final_score)} → ${fmt(e.after.final_score)}</p>` : e.version ? `<p>Правила обновлены</p>` : ""}</div></article>`).join('') || '<div class="empty">Журнал пока пуст</div>';
   $('#audit-dialog').showModal();
+}
+function evaluationDeductions(evaluation) {
+  return (evaluation?.criteria || []).filter(r=>r.type !== 'flag' && !r.is_na && r.normalized_weight-r.earned_score>0.00001)
+    .map(r=>({...r,loss:r.normalized_weight-r.earned_score}));
+}
+function renderDeductions(evaluation,current) {
+  const items=evaluationDeductions(evaluation),node=$('#deductions');node.hidden=items.length===0;
+  node.innerHTML=items.length ? `<h3>${current?'Почему снижена оценка':'В предыдущей оценке'}</h3>`+items.map(r=>{
+    const reason=r.override_comment || r.reason || '';
+    const preview=reason.length>170?reason.slice(0,167)+'…':reason;
+    return `<article class="deduction-row"><div class="deduction-top"><span>${escapeHTML(r.name)}</span><span class="deduction-loss" title="Снижение общего балла">−${fmt(r.loss)}</span></div><p>${escapeHTML(preview)}</p>${reason.length>170?`<details><summary>Полный комментарий</summary><p>${escapeHTML(reason)}</p></details>`:''}<button class="deduction-link" data-proof="${r.proof_message_index}">К фрагменту · ${escapeHTML(displayTime(r.proof_timestamp))} ↗</button></article>`;
+  }).join('') : '';
+}
+function toggleConversationList(force) {
+  const open=typeof force === 'boolean'?force:!document.body.classList.contains('list-open');
+  document.body.classList.toggle('list-open',open);
+  $('#conversations-view .queue-backdrop').hidden=!open;
+  $('[data-action="toggle-list"]').setAttribute('aria-expanded',String(open));
+  if(open) $('#search').focus?.();
+}
+async function setWorkspaceView(view,{updateHistory=true}={}) {
+  if(!['conversations','appeals','analytics'].includes(view)) return;
+  if(view === 'analytics' && state.role !== 'supervisor') view='conversations';
+  const sequence=++viewSequence;state.view=view;toggleConversationList(false);
+  document.body.dataset.view=view;
+  for(const name of ['conversations','appeals','analytics']) $(`#${name}-view`).hidden=name!==view;
+  const title={conversations:'Диалоги',appeals:'Апелляции',analytics:'Аналитика'}[view];
+  $('#page-title').textContent=title;$('#workspace-crumb').textContent=title;
+  $$('[data-workspace-view]').forEach(button=>{
+    const active=button.dataset.workspaceView===view;button.classList.toggle('active',active);
+    if(active) button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');
+  });
+  if(updateHistory && window.history && window.location?.hash!==`#${view}`) window.history.pushState(null,'',`#${view}`);
+  if(view === 'analytics') renderAnalytics();
+  if(view === 'appeals') {
+    $('#appeals-content').innerHTML='<div class="loading">Загрузка апелляций…</div>';
+    try {
+      const result=await api('/api/appeals');if(sequence!==viewSequence)return;
+      state.appealItems=result.items;renderAppeals();
+    } catch(error) {
+      if(sequence!==viewSequence)return;
+      $('#appeals-content').innerHTML='<div class="empty">Не удалось загрузить апелляции. Откройте раздел ещё раз.</div>';
+      throw error;
+    }
+  }
+}
+function renderAppeals() {
+  const selected=$('#appeals-filter').value;
+  const items=state.appealItems.filter(a=>!selected || (selected==='resolved'?a.status!=='PENDING':a.status===selected));
+  const pending=state.appealItems.filter(a=>a.status==='PENDING').length;
+  $('#appeals-total').textContent=`Всего: ${state.appealItems.length} · Ожидают решения: ${pending}`;
+  $('#appeals-content').innerHTML=items.length?`<div class="table-scroll"><table class="data-table"><thead><tr><th scope="col">Диалог</th><th scope="col">Критерий</th><th scope="col">Комментарий</th><th scope="col">Статус</th><th scope="col">Создана</th><th scope="col"><span class="sr-only">Действие</span></th></tr></thead><tbody>${items.map(a=>`<tr><td><strong>${escapeHTML(a.conversation_id)}</strong><small>${escapeHTML(languageNames[a.language] || 'Диалог недоступен')}${a.channel?' · '+(a.channel==='voice call'?'Звонок':'Чат'):''}</small></td><td>${escapeHTML(a.criterion_name)}</td><td><p class="table-comment">${escapeHTML(a.comment)}</p>${a.resolution_comment?`<details class="appeal-history"><summary>Решение</summary><p>${escapeHTML(a.resolution_comment)}</p></details>`:''}</td><td><span class="badge ${a.status==='PENDING'?'amber':a.status==='APPROVED'?'green':''}">${labels[a.status] || escapeHTML(a.status)}</span></td><td>${escapeHTML(dateTime(a.created_at))}</td><td><button class="button subtle" data-open-appeal="${escapeHTML(a.id)}" ${a.conversation_available?'':'disabled'}>${a.status==='PENDING'&&state.role==='supervisor'?'Рассмотреть':'Открыть'}</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Апелляций по выбранному условию нет.</div>';
+}
+async function openAppealConversation(id) {
+  const appeal=state.appealItems.find(a=>a.id===id);if(!appeal?.conversation_available)return;
+  clearTimeout(searchTimer);++filterSequence;state.searchIds=null;
+  for(const name of ['search','language','channel','status']) $(`#${name}`).value='';
+  await setWorkspaceView('conversations');await selectConversation(appeal.conversation_id);
+  $('.conversation-item.selected')?.scrollIntoView({block:'nearest'});
+  const current=state.detail?.appeals.find(a=>a.id===id);
+  if(current?.status==='PENDING'&&state.role==='supervisor') openResolve(id);
+}
+function analyticsSummary(items) {
+  const checked=items.filter(r=>r.status==='Evaluated');
+  const scores=checked.filter(r=>Number.isFinite(r.score));
+  const average=rows=>{const values=rows.filter(r=>Number.isFinite(r.score));return values.length?values.reduce((sum,r)=>sum+r.score,0)/values.length:null;};
+  return {total:items.length,checked:checked.length,average:average(scores),violations:checked.filter(r=>r.has_gross_violation).length,
+    buckets:[{label:'0–49',count:scores.filter(r=>r.score<50).length},{label:'50–74',count:scores.filter(r=>r.score>=50&&r.score<75).length},{label:'75–100',count:scores.filter(r=>r.score>=75).length}],
+    languages:['RU','KZ','EN'].map(language=>({label:languageNames[language],total:items.filter(r=>r.language===language).length,
+      checked:checked.filter(r=>r.language===language).length,average:average(checked.filter(r=>r.language===language))})),
+    channels:['agent chat','voice call'].map(channel=>({label:channel==='voice call'?'Звонки':'Чаты',total:items.filter(r=>r.channel===channel).length,
+      checked:checked.filter(r=>r.channel===channel).length,average:average(checked.filter(r=>r.channel===channel))}))};
+}
+function renderAnalytics() {
+  if(!state.checklist) {$('#analytics-content').innerHTML='<div class="loading">Загрузка данных…</div>';return;}
+  const summary=analyticsSummary(state.items),percent=summary.total?summary.checked/summary.total*100:0;
+  const maximum=Math.max(1,...summary.buckets.map(b=>b.count));
+  const table=rows=>`<div class="table-scroll"><table class="data-table compact"><thead><tr><th scope="col">Группа</th><th scope="col" class="numeric">Диалогов</th><th scope="col" class="numeric">Проверено</th><th scope="col" class="numeric">Средний балл</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escapeHTML(r.label)}</td><td class="numeric">${fmt(r.total,0)}</td><td class="numeric">${fmt(r.checked,0)}</td><td class="numeric">${fmt(r.average,2)}</td></tr>`).join('')}</tbody></table></div>`;
+  $('#analytics-content').innerHTML=`<div class="insights-layout"><section class="insight-section"><h2>Проверка диалогов</h2><p class="quiet">Только актуальные оценки</p><div class="coverage"><strong>${summary.checked}</strong><span>из ${summary.total} диалогов</span></div><div class="coverage-bar" role="img" aria-label="Проверено ${summary.checked} из ${summary.total}"><span style="width:${percent}%"></span></div><div class="coverage-legend"><span>Проверено: ${summary.checked}</span><span>Без актуальной оценки: ${summary.total-summary.checked}</span></div><p class="quiet">Грубые нарушения в проверенных диалогах: ${summary.violations}</p></section><section class="insight-section"><h2>Распределение баллов</h2><p class="quiet">Только диалоги с рассчитанным баллом</p>${summary.buckets.map(b=>`<div class="distribution-row"><span>${b.label}</span><div class="distribution-track" role="img" aria-label="${b.label} баллов: ${b.count} диалогов"><span style="width:${b.count/maximum*100}%"></span></div><span class="distribution-number">${b.count}</span></div>`).join('')}</section><section class="insight-section full-width"><h2>По языкам</h2><p class="quiet">Средний балл рассчитан по проверенным диалогам с баллами</p>${table(summary.languages)}</section><section class="insight-section full-width"><h2>По каналам</h2>${table(summary.channels)}</section></div>`;
 }
 const actions = {
   'checklist':openChecklist,'audit':openAudit,
   'reload':() => loadData(),
   'show-list':() => $('.queue').scrollIntoView({behavior:'smooth'}),
+  'toggle-list':()=>toggleConversationList(),
   'export':() => { if (state.detail) download(`${state.selected}-cqa.json`,state.detail); },
   'settings':() => { $('#settings-form').elements.token.value=state.token; $('#settings-form').elements.group.value=$('#group-badge').textContent; $('#settings-dialog').showModal(); },
   'batch':() => {
@@ -316,10 +405,14 @@ const actions = {
 document.addEventListener('click', event => {
   const close = event.target.closest('[data-close]');
   if (close) return close.closest('dialog').close();
+  const view=event.target.closest('[data-workspace-view]');
+  if(view) return void guarded(()=>setWorkspaceView(view.dataset.workspaceView));
+  const appealLink=event.target.closest('[data-open-appeal]');
+  if(appealLink) return void guarded(()=>openAppealConversation(appealLink.dataset.openAppeal));
   const action = event.target.closest('[data-action]');
   if (action) return void guarded(() => actions[action.dataset.action]());
   const item = event.target.closest('.conversation-item');
-  if (item) return void guarded(() => selectConversation(item.dataset.id));
+  if (item) return void guarded(async()=>{await selectConversation(item.dataset.id);toggleConversationList(false);});
   const proof = event.target.closest('[data-proof]');
   if (proof) return void guarded(() => seekProof(Number(proof.dataset.proof)));
   const appeal = event.target.closest('[data-appeal]');
@@ -329,6 +422,9 @@ document.addEventListener('click', event => {
   if (event.target.closest('#evaluate-button')) return void guarded(evaluateSelected);
 });
 $('#role').addEventListener('change', () => { state.role=$('#role').value; applyRole(); });
+$('#appeals-filter').addEventListener('change',renderAppeals);
+window.addEventListener('popstate',()=>guarded(()=>setWorkspaceView(initialView(),{updateHistory:false})));
+document.addEventListener('keydown',event=>{if(event.key==='Escape')toggleConversationList(false);});
 for (const id of ['language','channel','status']) $(`#${id}`).addEventListener('change',()=>guarded(()=>filterConversations()));
 $('#search').addEventListener('input', () => {
   clearTimeout(searchTimer);++filterSequence;
@@ -414,5 +510,6 @@ $('#batch-form').addEventListener('submit', event => {
 $('#export-audit').addEventListener('click', () => download('cqa-audit.json',state.audit));
 guarded(async () => {
   await loadData();
+  if(state.view==='conversations') await setWorkspaceView('conversations',{updateHistory:false});
   if (!state.items.length) toast('Нет диалогов. Загрузите их в настройках.',true);
 });

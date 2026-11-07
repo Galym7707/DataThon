@@ -11,7 +11,7 @@ function setup(fetcher=async()=>({}), storage={getItem(){return '';}}) {
     const attrs=new Map(),listeners=new Map();
     return {value:'',innerHTML:'',textContent:'',hidden:false,disabled:false,checked:false,scrollTop:0,
       readyState:0,duration:100,currentTime:0,paused:false,plays:0,listeners,
-      classList:{add(){},remove(){},toggle(){}},
+      dataset:{},classList:{add(){},remove(){},toggle(){},contains(){return false;}},
       setAttribute(k,v){attrs.set(k,v);},getAttribute(k){return attrs.get(k) ?? null;},removeAttribute(k){attrs.delete(k);},
       get src(){return attrs.get('src');},set src(v){attrs.set('src',v);},
       pause(){this.paused=true;},load(){},async play(){this.plays++;this.paused=false;},
@@ -23,7 +23,7 @@ function setup(fetcher=async()=>({}), storage={getItem(){return '';}}) {
     fetch:async url=>({ok:true,json:async()=>fetcher(url)}),setTimeout(){return 1;},clearTimeout(){},
     matchMedia(){return {matches:true};},console});
   const source=fs.readFileSync(path.join(__dirname,'../frontend/app.js'),'utf8').split("document.addEventListener('click'")[0];
-  vm.runInContext(source+'\nglobalThis.hooks={api,state,offsetSeconds,selectConversation,filterConversations,loadData,seekProof,resetAudio,openAppeal,collectEditor,renderDetail};',context);
+  vm.runInContext(source+'\nglobalThis.hooks={api,state,offsetSeconds,selectConversation,filterConversations,loadData,seekProof,resetAudio,openAppeal,collectEditor,renderDetail,analyticsSummary,evaluationDeductions,setWorkspaceView};',context);
   const h=context.hooks;
   h.state.checklist={version:1,criteria:[]};h.state.budget={remaining:0,limit:3,configured:true};
   return {h,doc,nodes,context};
@@ -125,4 +125,40 @@ test('form errors are readable and do not expose English validation internals',a
 test('network failures give a recoverable message',async()=>{
   const {h,context}=setup();context.fetch=async()=>{throw new TypeError('Failed to fetch');};
   await assert.rejects(h.api('/api/conversations'),{message:'Нет соединения с сервером. Попробуйте ещё раз.'});
+});
+test('analytics separates unevaluated, stale and scoreless records',()=>{
+  const {h}=setup();
+  const summary=h.analyticsSummary([
+    {language:'RU',channel:'agent chat',status:'Evaluated',score:80},
+    {language:'KZ',channel:'agent chat',status:'Evaluated',score:92.31},
+    {language:'EN',channel:'agent chat',status:'Pending',score:null},
+    {language:'RU',channel:'voice call',status:'Stale',score:10,has_gross_violation:true},
+    {language:'EN',channel:'voice call',status:'Evaluated',score:0,has_gross_violation:true},
+    {language:'KZ',channel:'agent chat',status:'Evaluated',score:null}
+  ]);
+  assert.equal(summary.total,6);assert.equal(summary.checked,4);assert.equal(summary.violations,1);
+  assert.ok(Math.abs(summary.average-172.31/3)<1e-9);
+  assert.deepEqual(Array.from(summary.buckets,r=>r.count),[1,0,2]);
+  assert.equal(summary.languages[1].checked,2);assert.equal(summary.languages[1].average,92.31);
+  assert.equal(summary.languages[2].average,0);
+});
+test('no evaluations do not produce a fake zero average',()=>{
+  const {h}=setup();const summary=h.analyticsSummary([{language:'RU',channel:'agent chat',status:'Pending',score:null}]);
+  assert.equal(summary.average,null);assert.equal(summary.checked,0);
+  assert.deepEqual(Array.from(summary.buckets,r=>r.count),[0,0,0]);
+});
+test('deduction summary excludes N/A, full points, zero weights and flags',()=>{
+  const {h}=setup();const summary=h.evaluationDeductions({criteria:[
+    {criterion_id:'1',type:'binary',is_na:false,normalized_weight:10,earned_score:0},
+    {criterion_id:'2',type:'scale',is_na:false,normalized_weight:30,earned_score:21},
+    {criterion_id:'3',type:'scale',is_na:true,normalized_weight:0,earned_score:0},
+    {criterion_id:'4',type:'binary',is_na:false,normalized_weight:20,earned_score:20},
+    {criterion_id:'5',type:'flag',is_na:false,normalized_weight:0,earned_score:0},
+    {criterion_id:'6',type:'binary',is_na:false,normalized_weight:0,earned_score:0}
+  ]});
+  assert.deepEqual(Array.from(summary,r=>r.loss),[10,9]);
+});
+test('operator navigation cannot open supervisor analytics',async()=>{
+  const {h,doc}=setup();h.state.role='operator';await h.setWorkspaceView('analytics');
+  assert.equal(h.state.view,'conversations');assert.equal(doc.querySelector('#page-title').textContent,'Диалоги');
 });
