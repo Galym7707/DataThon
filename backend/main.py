@@ -585,7 +585,7 @@ def create_app(store_path=None, dataset_file=None):
 
     @app.get("/")
     def index():
-        return FileResponse(ROOT / "frontend/index.html")
+        return FileResponse(ROOT / "frontend/index.html", headers={"Cache-Control": "no-store"})
 
     return app
 

@@ -7,11 +7,11 @@
   <meta name="description" content="Freedom CQA — проверка качества диалогов и работа с апелляциями.">
   <title>Freedom CQA · Качество диалогов</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%2310b981'/%3E%3Cpath d='M9 8h16l-3 5H14v4h7l-3 5h-4v5H9z' fill='%230f172a'/%3E%3C/svg%3E">
-  <script src="/static/theme.js?v=18"></script>
-  <link rel="stylesheet" href="/static/styles.css?v=18">
-  <link rel="stylesheet" href="/static/themes.css?v=18">
-  <link rel="stylesheet" href="/static/workspace.css?v=18">
-  <script src="/static/app.js?v=18" defer></script>
+  <script src="/static/theme.js?v=19"></script>
+  <link rel="stylesheet" href="/static/styles.css?v=19">
+  <link rel="stylesheet" href="/static/themes.css?v=19">
+  <link rel="stylesheet" href="/static/workspace.css?v=19">
+  <script src="/static/app.js?v=19" defer></script>
 </head>
 <body>
   <a class="skip" href="#transcript">К переписке</a>
@@ -68,7 +68,7 @@
 
   <dialog id="upload-dialog" aria-labelledby="upload-heading"><form id="upload-form">
     <div class="dialog-heading"><h2 id="upload-heading">Загрузить диалог</h2><button type="button" class="icon-button" data-close aria-label="Закрыть">×</button></div>
-    <div class="upload-body"><label class="upload-file-label">Выберите файл<input id="upload-file" type="file" accept=".txt,.docx,.pdf,.json" aria-describedby="upload-file-help"></label>
+    <div class="upload-body"><label class="upload-file-label">Выберите файл<input id="upload-file" type="file" aria-describedby="upload-file-help"></label>
     <p id="upload-file-help" class="field-help">TXT, DOCX, PDF с текстом или JSON · до 5 МБ · <a href="/static/dialogue-example.json" download="dialogue-example.json">Пример JSON</a></p>
     <p id="upload-file-status" class="quiet" role="status" aria-live="polite" hidden></p>
     <label id="upload-json-choice" hidden>Диалог из файла<select id="upload-json-select"></select></label>
