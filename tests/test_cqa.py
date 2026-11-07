@@ -442,3 +442,50 @@ def test_paid_api_is_blocked_in_standard_tests():
     from openai import OpenAI
     with pytest.raises(AssertionError,match='disabled in ordinary tests'):
         OpenAI(api_key='test-placeholder').chat.completions.create(model='gpt-4o',messages=[])
+
+
+def test_live_workflow_import_flag_appeal_rules_and_new_evaluation(client, monkeypatch):
+    """Real endpoints and store; evaluator is a clearly isolated, unpaid test double."""
+    calls = []
+    def fake(record, criteria):
+        calls.append(record["conversation_id"])
+        message = record["transcript"][-1]
+        rows = [{"criterion_id": c["id"], "value": 1 if c["type"] == "flag" else 0,
+                 "is_na": False, "reason": "Тестовое обоснование для проверки процесса",
+                 "proof_quote": message["text"], "proof_message_index": len(record["transcript"])-1,
+                 "proof_timestamp": message["timestamp"]} for c in criteria]
+        validate_evidence(rows, criteria, record["transcript"])
+        return {"results": rows, "model": "mock-no-network", "usage": {"prompt_tokens": 0, "completion_tokens": 0}}
+    monkeypatch.setattr("backend.ai_evaluator.evaluate", fake)
+    imported = client.post('/api/conversations/import', headers=SUPERVISOR, json={"title":"Workflow test", "language":"RU",
+        "transcript":[{"speaker":"client","text":"Вопрос","timestamp":"00:00"},
+                      {"speaker":"operator","text":"Тестовая реплика оператора","timestamp":"00:05"}]}).json()
+    cid = imported['id']
+    e = client.post('/api/evaluate/'+cid, headers=SUPERVISOR).json()['evaluation']
+    assert e['has_gross_violation'] and e['final_score'] == 0
+    flagged = client.get('/api/conversations', params={'gross_only':'true'}).json()['items']
+    assert [r['id'] for r in flagged] == [cid]
+    assert client.get('/api/conversations/'+cid).json()['evaluation']['criteria'][-1]['proof_quote'] == 'Тестовая реплика оператора'
+    a = client.post('/api/appeals/submit', headers=OPERATOR, json={'conversation_id':cid,'criterion_id':'08',
+        'evaluation_id':e['id'],'comment':'Проверка оспаривания классификации'}).json()
+    assert client.get('/api/appeals', headers=SUPERVISOR).json()['pending'] == 1
+    body = {'conversation_id':cid,'criterion_id':'08','appeal_id':a['id'],'action':'APPROVED','new_score':0,
+            'resolution_comment':'Руководитель снял флаг в тестовом сценарии'}
+    assert client.post('/api/appeals/resolve', headers=SUPERVISOR, json=body).status_code == 200
+    assert not client.get('/api/conversations', params={'gross_only':'true'}).json()['items']
+    assert len(calls) == 1
+    config = client.get('/api/checklist').json();config['criteria'][0]['weight'] = 12
+    changed = client.post('/api/checklist', headers=SUPERVISOR, json=config).json()
+    assert changed['rescored'] == 1 and not changed['requires_ai'] and len(calls) == 1
+    config = client.get('/api/checklist').json()
+    config['criteria'].append({**config['criteria'][0], 'id':'new','name':'Новый критерий', 'description':'Проверить новое правило', 'weight':3})
+    changed = client.post('/api/checklist', headers=SUPERVISOR, json=config).json()
+    assert changed['requires_ai'] and client.get('/api/conversations/'+cid).json()['status'] == 'Stale'
+    index = client.get('/api/conversations').json()['items']
+    assert not next(r for r in index if r['id'] == cid)['has_gross_violation']
+    assert not client.get('/api/conversations', params={'gross_only':'true'}).json()['items']
+    updated = client.post('/api/evaluate/'+cid, headers=SUPERVISOR).json()['evaluation']
+    assert len(updated['criteria']) == 9 and len(calls) == 2
+    assert [r['id'] for r in client.get('/api/conversations', params={'gross_only':'true'}).json()['items']] == [cid]
+    events = client.get('/api/audit', headers=SUPERVISOR).json()['events']
+    assert {'conversation_imported','evaluation_completed','appeal_submitted','appeal_resolved','checklist_updated'}.issubset({e['action'] for e in events})

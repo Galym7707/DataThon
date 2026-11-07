@@ -83,6 +83,7 @@ async function loadData(keepSelection = true) {
   $('#channel-metric').textContent = `${chats} чатов · ${list.total - chats} звонков`;
   $('#appeals-metric').textContent = list.items.reduce((sum,r) => sum+r.pending_appeals,0);
   const pending=list.items.reduce((sum,r)=>sum+r.pending_appeals,0);
+  $('#gross-count').textContent=String(list.items.filter(r=>r.status==='Evaluated'&&r.has_gross_violation).length);
   $('#nav-appeals-count').textContent=String(pending);$('#nav-appeals-count').hidden=pending===0;
   $('#group-badge').textContent = list.group;
   $('#checklist-version').textContent = 'Правила оценки';
@@ -106,12 +107,12 @@ async function filterConversations({keepSelection=true,refreshDetail=false}={}) 
   } else if(refreshDetail || state.detail?.conversation_id !== target) await selectConversation(target);
 }
 function renderList() {
-  const language = $('#language').value, channel = $('#channel').value, status = $('#status').value;
+  const language = $('#language').value, channel = $('#channel').value, status = $('#status').value, grossOnly=$('#gross-only').checked;
   const search = $('#search').value.trim().toLocaleLowerCase();
   // Server-side search includes full transcript; otherwise filter the loaded index locally.
-  state.filtered = state.items.filter(r => (!language || r.language === language) && (!channel || r.channel === channel) && (!status || (status === 'appeals' ? r.pending_appeals > 0 : r.status === status)) && (!search || state.searchIds?.has(r.id)));
+  state.filtered = state.items.filter(r => (!grossOnly || (r.status === 'Evaluated' && r.has_gross_violation)) && (!language || r.language === language) && (!channel || r.channel === channel) && (!status || (status === 'appeals' ? r.pending_appeals > 0 : r.status === status)) && (!search || state.searchIds?.has(r.id)));
   $('#filter-count').textContent = `${state.filtered.length} из ${state.items.length}`;
-  $('#conversation-list').innerHTML = state.filtered.length ? state.filtered.map(r => `<button class="conversation-item ${r.id === state.selected ? 'selected' : ''}" data-id="${escapeHTML(r.id)}" aria-pressed="${r.id === state.selected}"><div class="item-top"><span class="item-channel" aria-label="${r.channel === 'voice call' ? 'Звонок' : 'Чат'}"><svg viewBox="0 0 24 24" aria-hidden="true">${r.channel === 'voice call' ? '<path d="M5 3h4l2 5-3 2a16 16 0 0 0 6 6l2-3 5 2v4a2 2 0 0 1-2 2C10 21 3 14 3 5a2 2 0 0 1 2-2Z"/>' : '<path d="M4 4h16v13H9l-5 4V4Z"/><path d="M8 8h8M8 12h5"/>'}</svg></span><span class="item-id">${escapeHTML(r.title || r.id)}</span><span class="item-score">${fmt(r.score,1)}</span></div><p class="item-preview">${escapeHTML(r.preview)}</p><div class="item-bottom"><span class="language-chip">${r.language}</span><span class="status-dot ${r.status.toLowerCase()}"></span><span>${labels[r.status]}</span>${r.pending_appeals ? `<span class="appeal-mini">↗ ${r.pending_appeals}</span>` : ''}</div></button>`).join('') : '<div class="empty">Диалоги не найдены</div>';
+  $('#conversation-list').innerHTML = state.filtered.length ? state.filtered.map(r => `<button class="conversation-item ${r.id === state.selected ? 'selected' : ''}" data-id="${escapeHTML(r.id)}" aria-pressed="${r.id === state.selected}"><div class="item-top"><span class="item-channel" aria-label="${r.channel === 'voice call' ? 'Звонок' : 'Чат'}"><svg viewBox="0 0 24 24" aria-hidden="true">${r.channel === 'voice call' ? '<path d="M5 3h4l2 5-3 2a16 16 0 0 0 6 6l2-3 5 2v4a2 2 0 0 1-2 2C10 21 3 14 3 5a2 2 0 0 1 2-2Z"/>' : '<path d="M4 4h16v13H9l-5 4V4Z"/><path d="M8 8h8M8 12h5"/>'}</svg></span><span class="item-id">${escapeHTML(r.title || r.id)}</span><span class="item-score">${fmt(r.score,1)}</span></div><p class="item-preview">${escapeHTML(r.preview)}</p><div class="item-bottom"><span class="language-chip">${r.language}</span><span class="status-dot ${r.status.toLowerCase()}"></span><span>${labels[r.status]}</span>${r.pending_appeals ? `<span class="appeal-mini">↗ ${r.pending_appeals}</span>` : ''}</div></button>`).join('') : `<div class="empty">${grossOnly?'По выбранным условиям грубые ошибки не найдены.':'Диалоги не найдены'}</div>`;
 }
 async function selectConversation(id) {
   const sequence = ++state.sequence;
@@ -167,7 +168,7 @@ function renderDetail() {
   const d = state.detail;
   $('[data-action="export"]').disabled=!d;
   if (!d) {
-    $('#deductions').hidden=true;$('#deductions').innerHTML='';
+    $('#deductions').hidden=true;$('#deductions').innerHTML='';$('#violations').hidden=true;$('#violations').innerHTML='';
     $('#conversation-title').textContent=state.detailLoading ? 'Загрузка…' : 'Выберите диалог';
     $('#conversation-meta').textContent='ПЕРЕПИСКА';$('#message-count').textContent='—';
     $('#evaluation-status').textContent='Нет оценки ИИ';$('#evaluation-status').className='badge';
@@ -187,7 +188,7 @@ function renderDetail() {
   else if (!audioSource && audio.getAttribute('src')) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
   renderTranscript();
   const e = d.evaluation, current = d.status === 'Evaluated';
-  renderDeductions(e,current);
+  renderDeductions(e,current);renderViolations(e,current);
   const status = $('#evaluation-status');
   status.textContent = labels[d.status];
   status.className = `badge ${current ? 'green' : d.status === 'Stale' ? 'amber' : ''}`;
@@ -196,7 +197,7 @@ function renderDetail() {
   const percent = e?.final_score ?? 0;
   const eligible = !state.busy && d.status !== 'Evaluating' && !d.appeals.some(a=>a.status === 'PENDING') && state.budget.configured && state.budget.remaining > 0;
   const scoreNote=d.appeals.some(a=>a.status === 'PENDING') ? 'Сначала рассмотрите апелляции.' : e && e.final_score == null ? 'Нет применимых критериев с баллами.' : !state.budget.configured ? 'Оценка недоступна. Обратитесь к администратору.' : state.budget.remaining === 0 ? 'Лимит проверок исчерпан.' : e ? 'Проверьте обоснования и цитаты.' : '';
-  $('#score-panel').innerHTML = `${d.status === 'Stale' ? '<div class="warning">Эту оценку нужно обновить.</div>' : ''}<div class="score-main"><div class="score-ring" style="--percent:${Math.min(100,Math.max(0,percent))}"><div class="score-value"><strong>${fmt(e?.final_score)}</strong><small>из 100 баллов</small></div></div><div class="score-info">${e ? current ? 'Итоговая оценка' : 'Предыдущая оценка' : 'Готов к проверке'}${e ? `<p class="score-source">${sourceNote}</p>` : ''}<p>${e ? `${e.criteria.length} критериев` : `${d.language} · ${d.channel === 'voice call' ? 'голосовой звонок' : 'чат с оператором'}`}</p><p>${e ? `Не учитывается: ${e.criteria.filter(r => r.is_na).length}` : `${state.checklist.criteria.length} критериев`}</p></div></div>${e?.has_gross_violation ? '<div class="violation-warning">⚑ Грубое нарушение</div>' : ''}${state.role === 'supervisor' ? `<button class="button primary" id="evaluate-button" ${!eligible ? 'disabled' : ''}>${state.busy ? 'Оценка выполняется…' : current ? 'Оценить повторно' : 'Оценить диалог'} <span aria-hidden="true">↗</span></button>` : ''}<p class="score-note">${scoreNote}</p>`;
+  $('#score-panel').innerHTML = `${d.status === 'Stale' ? '<div class="warning">Эту оценку нужно обновить.</div>' : ''}<div class="score-main"><div class="score-ring" style="--percent:${Math.min(100,Math.max(0,percent))}"><div class="score-value"><strong>${fmt(e?.final_score)}</strong><small>из 100 баллов</small></div></div><div class="score-info">${e ? current ? 'Итоговая оценка' : 'Предыдущая оценка' : 'Готов к проверке'}${e ? `<p class="score-source">${sourceNote}</p>` : ''}<p>${e ? `${e.criteria.length} критериев` : `${d.language} · ${d.channel === 'voice call' ? 'голосовой звонок' : 'чат с оператором'}`}</p><p>${e ? `Не учитывается: ${e.criteria.filter(r => r.is_na).length}` : `${state.checklist.criteria.length} критериев`}</p></div></div>${state.role === 'supervisor' ? `<button class="button primary" id="evaluate-button" ${!eligible ? 'disabled' : ''}>${state.busy ? 'Оценка выполняется…' : current ? 'Оценить повторно' : 'Оценить диалог'} <span aria-hidden="true">↗</span></button>` : ''}<p class="score-note">${scoreNote}</p>`;
   if (!e) {
     $('#criteria').innerHTML = state.checklist.criteria.map(c => `<div class="criterion"><div class="criterion-top"><span class="criterion-number">${escapeHTML(c.id)}</span><span class="criterion-name">${escapeHTML(c.name)}</span><span class="criterion-answer na">—</span></div><div class="criterion-math"><span>${c.type === 'flag' ? 'Без баллов' : `Вес ${fmt(c.weight)}`}</span><span>${c.allow_na ? 'Можно не учитывать' : 'Всегда применим'}</span></div></div>`).join('');
     return;
@@ -320,6 +321,19 @@ function renderDeductions(evaluation,current) {
     return `<article class="deduction-row"><div class="deduction-top"><span>${escapeHTML(r.name)}</span><span class="deduction-loss" title="Снижение общего балла">−${fmt(r.loss)}</span></div><p>${escapeHTML(preview)}</p>${reason.length>170?`<details><summary>Полный комментарий</summary><p>${escapeHTML(reason)}</p></details>`:''}<button class="deduction-link" data-proof="${r.proof_message_index}">К фрагменту · ${escapeHTML(displayTime(r.proof_timestamp))} ↗</button></article>`;
   }).join('') : '';
 }
+function renderViolations(evaluation,current) {
+  const items=(evaluation?.criteria || []).filter(r=>r.type==='flag'&&!r.is_na&&r.value===1),node=$('#violations');
+  node.hidden=items.length===0;
+  node.innerHTML=items.length?`<h3>${current?'Грубые ошибки':'Грубые ошибки в предыдущей оценке'}</h3>`+items.map(r=>
+    `<article class="deduction-row">${items.length===1&&r.name.trim().toLocaleLowerCase()==='грубые ошибки'?'':`<div class="deduction-top"><span>${escapeHTML(r.name)}</span></div>`}<p>${escapeHTML(r.override_comment || r.reason)}</p><button class="deduction-link" data-proof="${r.proof_message_index}">К фрагменту · ${escapeHTML(displayTime(r.proof_timestamp))} ↗</button></article>`).join(''):'';
+}
+async function showGrossConversations() {
+  clearTimeout(searchTimer);++filterSequence;state.searchIds=null;
+  for(const id of ['search','language','channel','status']) $(`#${id}`).value='';
+  $('#gross-only').checked=true;
+  await setWorkspaceView('conversations');await filterConversations({keepSelection:false});
+  if(matchMedia('(max-width:1190px)').matches)toggleConversationList(true);
+}
 function toggleConversationList(force) {
   const open=typeof force === 'boolean'?force:!document.body.classList.contains('list-open');
   document.body.classList.toggle('list-open',open);
@@ -364,6 +378,7 @@ async function openAppealConversation(id) {
   const appeal=state.appealItems.find(a=>a.id===id);if(!appeal?.conversation_available)return;
   clearTimeout(searchTimer);++filterSequence;state.searchIds=null;
   for(const name of ['search','language','channel','status']) $(`#${name}`).value='';
+  $('#gross-only').checked=false;
   await setWorkspaceView('conversations');await selectConversation(appeal.conversation_id);
   $('.conversation-item.selected')?.scrollIntoView({block:'nearest'});
   const current=state.detail?.appeals.find(a=>a.id===id);
@@ -385,7 +400,7 @@ function renderAnalytics() {
   const summary=analyticsSummary(state.items),percent=summary.total?summary.checked/summary.total*100:0;
   const maximum=Math.max(1,...summary.buckets.map(b=>b.count));
   const table=rows=>`<div class="table-scroll"><table class="data-table compact"><thead><tr><th scope="col">Группа</th><th scope="col" class="numeric">Диалогов</th><th scope="col" class="numeric">С оценкой ИИ</th><th scope="col" class="numeric">Средний балл</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escapeHTML(r.label)}</td><td class="numeric">${fmt(r.total,0)}</td><td class="numeric">${fmt(r.checked,0)}</td><td class="numeric">${fmt(r.average,2)}</td></tr>`).join('')}</tbody></table></div>`;
-  $('#analytics-content').innerHTML=`<div class="insights-layout"><section class="insight-section"><h2>Оценка диалогов</h2><p class="quiet">Оценки ИИ с учётом решений по апелляциям</p><div class="coverage"><strong>${summary.checked}</strong><span>из ${summary.total} диалогов</span></div><div class="coverage-bar" role="img" aria-label="Оценено ИИ ${summary.checked} из ${summary.total}"><span style="width:${percent}%"></span></div><div class="coverage-legend"><span>С оценкой ИИ: ${summary.checked}</span><span>Без актуальной оценки: ${summary.total-summary.checked}</span></div><p class="quiet">Грубые нарушения в оценённых диалогах: ${summary.violations}</p></section><section class="insight-section"><h2>Распределение баллов</h2><p class="quiet">Только диалоги с рассчитанным баллом</p>${summary.buckets.map(b=>`<div class="distribution-row"><span>${b.label}</span><div class="distribution-track" role="img" aria-label="${b.label} баллов: ${b.count} диалогов"><span style="width:${b.count/maximum*100}%"></span></div><span class="distribution-number">${b.count}</span></div>`).join('')}</section><section class="insight-section full-width"><h2>По языкам</h2><p class="quiet">Средний балл по актуальным оценкам</p>${table(summary.languages)}</section><section class="insight-section full-width"><h2>По каналам</h2>${table(summary.channels)}</section></div>`;
+  $('#analytics-content').innerHTML=`<div class="insights-layout"><section class="insight-section"><h2>Оценка диалогов</h2><p class="quiet">Оценки ИИ с учётом решений по апелляциям</p><div class="coverage"><strong>${summary.checked}</strong><span>из ${summary.total} диалогов</span></div><div class="coverage-bar" role="img" aria-label="Оценено ИИ ${summary.checked} из ${summary.total}"><span style="width:${percent}%"></span></div><div class="coverage-legend"><span>С оценкой ИИ: ${summary.checked}</span><span>Без актуальной оценки: ${summary.total-summary.checked}</span></div><p class="quiet">Грубые нарушения в оценённых диалогах: ${summary.violations}</p><button class="button ghost" data-action="show-gross">Показать диалоги с грубыми ошибками ↗</button></section><section class="insight-section"><h2>Распределение баллов</h2><p class="quiet">Только диалоги с рассчитанным баллом</p>${summary.buckets.map(b=>`<div class="distribution-row"><span>${b.label}</span><div class="distribution-track" role="img" aria-label="${b.label} баллов: ${b.count} диалогов"><span style="width:${b.count/maximum*100}%"></span></div><span class="distribution-number">${b.count}</span></div>`).join('')}</section><section class="insight-section full-width"><h2>По языкам</h2><p class="quiet">Средний балл по актуальным оценкам</p>${table(summary.languages)}</section><section class="insight-section full-width"><h2>По каналам</h2>${table(summary.channels)}</section></div>`;
 }
 function showUploadError(message) {
   const node=$('#upload-error');node.textContent=message;node.hidden=false;
@@ -446,6 +461,7 @@ async function importUpload(form) {
       language:form.elements.language.value,channel:form.elements.channel.value});
     clearTimeout(searchTimer);++filterSequence;state.searchIds=null;
     for(const id of ['search','language','channel','status']) $(`#${id}`).value='';
+    $('#gross-only').checked=false;
     state.selected=result.id;$('#upload-dialog').close();
     await setWorkspaceView('conversations');await loadData();
     toast('Диалог добавлен.');
@@ -456,7 +472,7 @@ async function importUpload(form) {
   finally {form.classList.remove('busy');$('#upload-submit').disabled=false;$('#upload-submit').textContent='Добавить диалог';}
 }
 const actions = {
-  'checklist':openChecklist,'audit':openAudit,'upload':openUpload,
+  'checklist':openChecklist,'audit':openAudit,'upload':openUpload,'show-gross':showGrossConversations,
   'reload':() => loadData(),
   'show-list':() => $('.queue').scrollIntoView({behavior:'smooth'}),
   'toggle-list':()=>toggleConversationList(),
@@ -494,7 +510,7 @@ $('#role').addEventListener('change', () => { state.role=$('#role').value; apply
 $('#appeals-filter').addEventListener('change',renderAppeals);
 window.addEventListener('popstate',()=>guarded(()=>setWorkspaceView(initialView(),{updateHistory:false})));
 document.addEventListener('keydown',event=>{if(event.key==='Escape')toggleConversationList(false);});
-for (const id of ['language','channel','status']) $(`#${id}`).addEventListener('change',()=>guarded(()=>filterConversations()));
+for (const id of ['language','channel','status','gross-only']) $(`#${id}`).addEventListener('change',()=>guarded(()=>filterConversations()));
 $('#search').addEventListener('input', () => {
   clearTimeout(searchTimer);++filterSequence;
   searchTimer=setTimeout(()=>guarded(()=>filterConversations()),200);
@@ -515,7 +531,7 @@ $('#resolve-form').addEventListener('submit', event => {
   guarded(async () => {
     const a=state.resolveAppeal, value=form.elements.value.value;
     const result=await post('/api/appeals/resolve',{conversation_id:a.conversation_id,criterion_id:a.criterion_id,appeal_id:a.id,action:form.elements.action.value,new_score:value === 'na' ? null : Number(value),is_na:value === 'na',resolution_comment:form.elements.resolution_comment.value.trim()});
-    $('#resolve-dialog').close(); await loadData(); toast(`Решение сохранено. Итог: ${fmt(result.evaluation.final_score)} / 100.`);
+    $('#resolve-dialog').close(); await loadData(); $('.inspector-body').scrollTop=0; toast(`Решение сохранено. Итог: ${fmt(result.evaluation.final_score)} / 100.`);
   },form);
 });
 $('#checklist-editor').addEventListener('change', event => {
@@ -544,7 +560,7 @@ $('#checklist-form').addEventListener('submit', event => {
   event.preventDefault(); const form=event.currentTarget;
   guarded(async () => {
     collectEditor(); const result=await post('/api/checklist',{version:state.editVersion,criteria:state.edit});
-    $('#checklist-dialog').close(); await loadData();
+    $('#checklist-dialog').close(); await loadData(); $('.inspector-body').scrollTop=0;
     toast(result.requires_ai ? `Правила сохранены. Нужно обновить оценок: ${result.stale}.` : `Изменения сохранены. Обновлено оценок: ${result.rescored}.`);
   },form);
 });

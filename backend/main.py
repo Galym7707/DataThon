@@ -286,7 +286,7 @@ def create_app(store_path=None, dataset_file=None):
 
     @app.get("/api/conversations")
     def conversations(language: str | None = None, channel: str | None = None,
-                      status: str | None = None, search: str = ""):
+                      status: str | None = None, search: str = "", gross_only: bool = False):
         with store.lock:
             items = []
             for cid, r in store.data["records"].items():
@@ -296,10 +296,12 @@ def create_app(store_path=None, dataset_file=None):
                 if search and search.casefold() not in (cid + " " + r.get("title", "") + " " + " ".join(m["text"] for m in r["transcript"])).casefold():
                     continue
                 e = store.data["evaluations"].get(cid)
+                if gross_only and not (current_status == "Evaluated" and e and e["has_gross_violation"]):
+                    continue
                 first = next((m["text"] for m in r["transcript"] if m["speaker"] == "client"), "Диалог")
                 items.append({"id": cid, "title": r.get("title"), "language": r["language"], "channel": r["channel"], "preview": first,
                               "status": current_status, "score": e["final_score"] if e and current_status == "Evaluated" else None,
-                              "has_gross_violation": bool(e and e["has_gross_violation"]),
+                              "has_gross_violation": bool(e and current_status == "Evaluated" and e["has_gross_violation"]),
                               "pending_appeals": sum(a["conversation_id"] == cid and a["status"] == "PENDING" for a in store.data["appeals"])})
             return {"items": items, "total": len(store.data["records"]), "group": store.data["dataset_group_id"],
                     "evaluated": sum(store.status(cid) == "Evaluated" for cid in store.data["records"]),

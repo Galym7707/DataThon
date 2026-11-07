@@ -23,7 +23,7 @@ function setup(fetcher=async()=>({}), storage={getItem(){return '';}}) {
     fetch:async url=>({ok:true,json:async()=>fetcher(url)}),setTimeout(){return 1;},clearTimeout(){},
     matchMedia(){return {matches:true};},console});
   const source=fs.readFileSync(path.join(__dirname,'../frontend/app.js'),'utf8').split("document.addEventListener('click'")[0];
-  vm.runInContext(source+'\nglobalThis.hooks={api,state,offsetSeconds,selectConversation,filterConversations,loadData,seekProof,resetAudio,openAppeal,collectEditor,renderDetail,analyticsSummary,evaluationDeductions,setWorkspaceView,readUploadFile,showJsonConversation,rememberJsonConversation,openUpload};',context);
+  vm.runInContext(source+'\nglobalThis.hooks={api,state,offsetSeconds,selectConversation,filterConversations,loadData,seekProof,resetAudio,openAppeal,collectEditor,renderDetail,analyticsSummary,evaluationDeductions,setWorkspaceView,readUploadFile,showJsonConversation,rememberJsonConversation,openUpload,showGrossConversations};',context);
   const h=context.hooks;
   h.state.checklist={version:1,criteria:[]};h.state.budget={remaining:0,limit:3,configured:true};
   return {h,doc,nodes,context};
@@ -187,4 +187,28 @@ test('opening a new upload rejects a late response from the previous file',async
   const reading=h.readUploadFile({name:'old.json',size:100});h.openUpload();form.elements.text.value='New draft';
   pending.resolve({conversations:[{title:'Old',text:'Old data',language:'RU',channel:'agent chat'}]});await reading;
   assert.equal(form.elements.text.value,'New draft');
+});
+
+
+test('gross-error filter uses current flags, clears stale detail and keeps zero scores',async()=>{
+  const a=record('gross'),b=record('old'),c=record('pending');a.status='Evaluated';
+  const {h,doc}=setup(()=>a);
+  h.state.items=[{...item(a),has_gross_violation:true,score:0},{...item(b),status:'Stale',has_gross_violation:true},
+                 {...item(c),has_gross_violation:true}];
+  doc.querySelector('#gross-only').checked=true;
+  await h.filterConversations();
+  assert.deepEqual(Array.from(h.state.filtered,r=>r.id),['gross']);assert.equal(h.state.selected,'gross');
+  doc.querySelector('#language').value='EN';await h.filterConversations();
+  assert.equal(h.state.selected,null);assert.equal(h.state.detail,null);
+  assert.match(doc.querySelector('#conversation-list').innerHTML,/По выбранным условиям/);
+});
+test('gross-error summary puts exact reason and evidence before all criteria',()=>{
+  const {h,doc}=setup();const r=record();r.status='Evaluated';
+  r.evaluation={final_score:80,has_gross_violation:true,criteria:[{criterion_id:'08',name:'Грубые ошибки',type:'flag',value:1,
+    reason:'TEST REASON',override_comment:'MANUAL REASON',proof_message_index:1,proof_timestamp:'00:40',proof_quote:'Answer'}]};
+  h.state.detail=r;h.renderDetail();
+  assert.equal(doc.querySelector('#violations').hidden,false);
+  assert.match(doc.querySelector('#violations').innerHTML,/MANUAL REASON/);
+  assert.match(doc.querySelector('#violations').innerHTML,/data-proof="1"/);
+  r.evaluation.criteria[0].value=0;h.renderDetail();assert.equal(doc.querySelector('#violations').hidden,true);
 });
