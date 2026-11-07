@@ -1,0 +1,1 @@
+"""Freedom CQA local prototype."""

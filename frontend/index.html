@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="description" content="Freedom CQA — проверка качества диалогов и работа с апелляциями.">
+  <title>Freedom CQA · Качество диалогов</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%2310b981'/%3E%3Cpath d='M9 8h16l-3 5H14v4h7l-3 5h-4v5H9z' fill='%230f172a'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#transcript">К переписке</a>
+  <aside class="rail" aria-label="Навигация">
+    <a class="brand-symbol" href="/" aria-label="Freedom CQA"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 6h21l-4 6H14v5h9l-4 6h-5v6H7z"/></svg></a>
+    <div class="rail-divider"></div>
+    <button class="rail-button active" title="Диалоги" aria-label="Диалоги" data-action="show-list"><svg viewBox="0 0 24 24"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 4V6a2 2 0 0 1 2-2Z"/><path d="M7 9h10M7 13h6"/></svg></button>
+    <button class="rail-button supervisor-only" title="Чек-лист" aria-label="Редактор чек-листа" data-action="checklist"><svg viewBox="0 0 24 24"><path d="m4 6 2 2 3-4M12 6h8M4 13l2 2 3-4M12 13h8M5 20h15"/></svg></button>
+    <button class="rail-button supervisor-only" title="Журнал действий" aria-label="Журнал действий" data-action="audit"><svg viewBox="0 0 24 24"><path d="M4 11a8 8 0 1 1 2 6M4 4v7h7M12 7v5l3 2"/></svg></button>
+    <span class="rail-spacer"></span>
+    <button class="rail-button" title="Настройки" aria-label="Настройки" data-action="settings"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg></button>
+    <span class="avatar" aria-hidden="true">QA</span>
+  </aside>
+
+  <div class="shell">
+    <header class="topbar">
+      <div class="wordmark">freedom<span>CQA</span><span class="workspace-label">Conversation Quality Analytics</span></div>
+      <div class="topbar-actions"><span class="demo-indicator" id="auth-mode">Локальный прототип</span><label class="role-control" for="role"><span class="sr-only">Роль</span><select id="role"><option value="supervisor">QA-супервизор</option><option value="operator">Оператор</option></select></label><button class="icon-button mobile-only" data-action="settings" aria-label="Настройки">☷</button></div>
+    </header>
+
+    <main>
+      <section class="overview" aria-labelledby="page-title">
+        <div class="page-intro"><div class="eyebrow">КОНТРОЛЬ КАЧЕСТВА <span id="group-badge">DEV</span></div><h1 id="page-title">Диалоги под контролем<span>.</span></h1><p>От реплики к оценке. От оценки к решению.</p></div>
+        <div class="metrics"><div><span class="metric-label">Всего диалогов</span><strong id="total-metric">—</strong><span class="metric-note" id="channel-metric">Загрузка данных</span></div><div><span class="metric-label">Проверено</span><strong id="evaluated-metric">—</strong><span class="metric-note" id="progress-metric">—</span></div><div><span class="metric-label">Средний балл</span><strong id="score-metric">—</strong><span class="metric-note">из 100 · актуальные оценки</span></div><div><span class="metric-label">Апелляции</span><strong id="appeals-metric">—</strong><span class="metric-note">ожидают решения</span></div></div>
+      </section>
+
+      <div class="workspace-bar"><div class="workspace-tabs"><span class="tab active">Все диалоги <span id="tab-count">0</span></span><span class="quiet" id="checklist-version">Чек-лист v1</span></div><div class="workspace-actions"><span id="budget" class="budget">API: —</span><button class="button subtle supervisor-only" data-action="batch">Оценить пакет <span aria-hidden="true">↗</span></button><button class="button subtle supervisor-only" data-action="checklist">Настроить чек-лист</button></div></div>
+
+      <div class="workbench">
+        <section class="queue" aria-label="Очередь диалогов">
+          <div class="queue-controls"><label class="search-box"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input id="search" type="search" placeholder="Поиск по ID или переписке" aria-label="Поиск диалогов"></label><div class="filter-row"><select id="language" aria-label="Язык"><option value="">Все языки</option><option>RU</option><option>KZ</option><option>EN</option></select><select id="channel" aria-label="Канал"><option value="">Все каналы</option><option value="agent chat">Чаты</option><option value="voice call">Звонки</option></select></div><select id="status" aria-label="Статус оценки"><option value="">Любой статус</option><option value="Pending">Без оценки</option><option value="Evaluated">Проверено</option><option value="Stale">Требует переоценки</option><option value="appeals">С апелляциями</option></select></div>
+          <div class="queue-heading"><span>ДИАЛОГ</span><span id="filter-count">—</span></div><div id="conversation-list" class="conversation-list" aria-label="Список диалогов"><div class="loading">Загрузка диалогов…</div></div>
+          <div class="queue-footer"><span class="live-dot"></span><span id="data-status">Подключение к серверу</span><button class="icon-button" data-action="reload" title="Обновить" aria-label="Обновить данные">↻</button></div>
+        </section>
+
+        <section class="conversation" aria-labelledby="conversation-title"><header class="conversation-header"><div><div class="eyebrow" id="conversation-meta">ПЕРЕПИСКА</div><h2 id="conversation-title">Выберите диалог</h2></div><button class="icon-button" data-action="export" title="Экспорт результата" aria-label="Экспорт результата в JSON">↓</button></header><div id="audio-panel" hidden><div class="audio-label"><span class="live-dot"></span> ЗАПИСЬ ЗВОНКА <span id="audio-time">00:00</span></div><audio id="audio" controls preload="none" aria-label="Запись звонка"></audio><p class="audio-hint">Нажмите на время в оценке, чтобы перейти к фрагменту.</p></div><div class="transcript-toolbar"><span>Транскрипция</span><label class="toggle"><input type="checkbox" id="show-context" checked><span>Бот и система</span></label></div><div id="transcript" class="transcript" tabindex="0"><div class="empty">Здесь появится переписка</div></div><footer class="conversation-footer"><span id="message-count">—</span><span>Исходный текст · RU / KZ / EN</span></footer></section>
+
+        <aside class="inspector" aria-label="Оценка качества"><header class="inspector-header"><h2>Оценка качества</h2><span id="evaluation-status" class="badge">Без оценки</span></header><div id="score-panel" class="score-panel"></div><div class="criteria-heading"><span>КРИТЕРИИ ОЦЕНКИ</span><span id="criteria-count">08</span></div><div id="criteria" class="criteria"><div class="empty">Выберите диалог для проверки по чек-листу.</div></div><div class="inspector-footer"><span class="live-dot"></span><span>Цитаты сверяются с транскрипцией</span></div></aside>
+      </div>
+      <footer class="page-footer"><span>FREEDOM · CONVERSATION QUALITY ANALYTICS</span><span>Прототип для CQA Hackathon</span></footer>
+    </main>
+  </div>
+
+  <dialog id="appeal-dialog"><form id="appeal-form"><div class="dialog-heading"><div><div class="eyebrow">ПЕРЕСМОТР ОЦЕНКИ</div><h2>Подать апелляцию</h2></div><button type="button" class="icon-button" data-close aria-label="Закрыть">×</button></div><p id="appeal-criterion" class="dialog-subtitle"></p><label>Основание<textarea name="comment" required minlength="5" maxlength="3000" rows="5" placeholder="Укажите, с чем вы не согласны, и приведите фрагмент диалога."></textarea></label><div class="dialog-footer"><button type="button" class="button subtle" data-close>Отмена</button><button class="button primary">Отправить апелляцию</button></div></form></dialog>
+
+  <dialog id="resolve-dialog"><form id="resolve-form"><div class="dialog-heading"><div><div class="eyebrow">РЕШЕНИЕ СУПЕРВИЗОРА</div><h2>Рассмотреть апелляцию</h2></div><button type="button" class="icon-button" data-close aria-label="Закрыть">×</button></div><p id="resolve-criterion" class="dialog-subtitle"></p><blockquote id="operator-comment"></blockquote><div class="form-row"><label>Решение<select name="action"><option value="APPROVED">Удовлетворить</option><option value="REJECTED">Отклонить</option></select></label><label>Новая оценка<select name="value" id="resolve-value"></select></label></div><label>Обоснование решения<textarea name="resolution_comment" required minlength="5" maxlength="3000" rows="4" placeholder="Объясните решение. Оно сохранится в журнале."></textarea></label><div class="dialog-footer"><button type="button" class="button subtle" data-close>Отмена</button><button class="button primary">Применить и пересчитать</button></div></form></dialog>
+
+  <dialog id="checklist-dialog" class="wide-dialog"><form id="checklist-form"><div class="dialog-heading"><div><div class="eyebrow">ЕДИНЫЕ ПРАВИЛА ОЦЕНКИ</div><h2>Редактор чек-листа <span id="editor-version"></span></h2></div><button type="button" class="icon-button" data-close aria-label="Закрыть">×</button></div><p class="dialog-subtitle">Веса пересчитываются без API. Изменения правил требуют новой оценки ИИ; запуск выполняется отдельно в пределах лимита.</p><div id="checklist-editor"></div><button type="button" class="button subtle" id="add-criterion">+ Добавить критерий</button><div class="dialog-footer"><span id="weight-total" class="quiet"></span><button type="button" class="button subtle" data-close>Отмена</button><button class="button primary">Сохранить и применить ко всем</button></div></form></dialog>
+
+  <dialog id="settings-dialog"><form id="settings-form"><div class="dialog-heading"><h2>Подключение и доступ</h2><button type="button" class="icon-button" data-close aria-label="Закрыть">×</button></div><p class="dialog-subtitle">Ключ OpenAI настраивается в серверном .env. Токен супервизора нужен, если включена защита сервера.</p><label>Токен супервизора<input name="token" type="password" autocomplete="off" placeholder="Для локального демо не требуется"></label><label>Группа датасета<input name="group" pattern="[A-Za-z0-9_-]{1,40}" value="DEV" required></label><button type="button" class="button subtle supervisor-only" id="refresh-dataset">Загрузить группу через API организаторов</button><p class="quiet" id="settings-budget"></p><div class="dialog-footer"><button class="button primary">Сохранить</button></div></form></dialog>
+
+  <dialog id="batch-dialog"><form id="batch-form"><div class="dialog-heading"><h2>Оценить пакет</h2><button type="button" class="icon-button" data-close aria-label="Закрыть">×</button></div><p class="dialog-subtitle" id="batch-description"></p><label>Количество диалогов<input name="count" type="number" min="1" max="3" value="1" required></label><p class="quiet">Будут выбраны первые диалоги без актуальной оценки из текущего фильтра. При ошибке пакет остановится. Один диалог — один вызов API.</p><div class="dialog-footer"><button type="button" class="button subtle" data-close>Отмена</button><button class="button primary">Запустить оценку</button></div></form></dialog>
+
+  <dialog id="audit-dialog" class="wide-dialog"><div class="dialog-heading"><div><div class="eyebrow">ИСТОРИЯ ИЗМЕНЕНИЙ</div><h2>Журнал действий</h2></div><button type="button" class="icon-button" data-close aria-label="Закрыть">×</button></div><div id="audit-content"></div><div class="dialog-footer"><button class="button subtle" id="export-audit">Скачать журнал JSON</button><button class="button primary" data-close>Закрыть</button></div></dialog>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
