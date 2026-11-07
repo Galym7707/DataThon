@@ -1,0 +1,128 @@
+/* State/async regression tests: real client functions, no browser or network. */
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const vm=require('node:vm');
+const fs=require('node:fs');
+const path=require('node:path');
+
+function setup(fetcher=async()=>({}), storage={getItem(){return '';}}) {
+  const nodes=new Map();
+  function element() {
+    const attrs=new Map(),listeners=new Map();
+    return {value:'',innerHTML:'',textContent:'',hidden:false,disabled:false,checked:false,scrollTop:0,
+      readyState:0,duration:100,currentTime:0,paused:false,plays:0,listeners,
+      classList:{add(){},remove(){},toggle(){}},
+      setAttribute(k,v){attrs.set(k,v);},getAttribute(k){return attrs.get(k) ?? null;},removeAttribute(k){attrs.delete(k);},
+      get src(){return attrs.get('src');},set src(v){attrs.set('src',v);},
+      pause(){this.paused=true;},load(){},async play(){this.plays++;this.paused=false;},
+      addEventListener(k,v){listeners.set(k,v);},removeEventListener(k,v){if(listeners.get(k)===v)listeners.delete(k);},
+      scrollIntoView(){},querySelector(){return element();},showModal(){},reset(){}};
+  }
+  const doc={body:element(),querySelector(selector){if(!nodes.has(selector))nodes.set(selector,element());return nodes.get(selector);},querySelectorAll(){return [];}};
+  const context=vm.createContext({document:doc,window:{},sessionStorage:storage,
+    fetch:async url=>({ok:true,json:async()=>fetcher(url)}),setTimeout(){return 1;},clearTimeout(){},
+    matchMedia(){return {matches:true};},console});
+  const source=fs.readFileSync(path.join(__dirname,'../frontend/app.js'),'utf8').split("document.addEventListener('click'")[0];
+  vm.runInContext(source+'\nglobalThis.hooks={api,state,offsetSeconds,selectConversation,filterConversations,loadData,seekProof,resetAudio,openAppeal,collectEditor,renderDetail};',context);
+  const h=context.hooks;
+  h.state.checklist={version:1,criteria:[]};h.state.budget={remaining:0,limit:3,configured:true};
+  return {h,doc,nodes,context};
+}
+function record(id='a',language='RU',audio=null) {
+  return {conversation_id:id,language,channel:audio?'voice call':'agent chat',audio_url:audio,status:'Pending',evaluation:null,appeals:[],
+    transcript:[{timestamp:'00:30',text:'Question',speaker:'client'},{timestamp:'00:40',text:'Answer',speaker:'operator'}]};
+}
+function item(r) {return {id:r.conversation_id,language:r.language,channel:r.channel,status:r.status,preview:'Question',pending_appeals:0};}
+function deferred() {let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};}
+
+test('audio offsets are relative for both timestamp formats',()=>{
+  const {h}=setup();
+  assert.equal(h.offsetSeconds('01:10','00:30'),40);
+  assert.equal(h.offsetSeconds('01:00:10','01:00:00'),10);
+  assert.equal(h.offsetSeconds('2026-11-03T13:00:30Z','2026-11-03T13:00:00Z'),30);
+  assert.equal(h.offsetSeconds('99:99','00:00'),0);
+});
+test('empty filter clears the previous voice, title, and assessment',async()=>{
+  const {h,doc}=setup();const r=record('a','RU','/audio');h.state.items=[item(r)];h.state.detail=r;h.state.selected='a';
+  doc.querySelector('#audio').src='/audio';doc.querySelector('#language').value='EN';
+  await h.filterConversations();
+  assert.equal(h.state.detail,null);assert.equal(h.state.selected,null);
+  assert.equal(doc.querySelector('#audio').paused,true);assert.equal(doc.querySelector('#audio').getAttribute('src'),null);
+  assert.equal(doc.querySelector('#conversation-title').textContent,'Выберите диалог');
+  assert.equal(doc.querySelector('#score-panel').innerHTML,'');
+});
+test('filter selects a matching conversation automatically',async()=>{
+  const en=record('english','EN');const {h,doc}=setup(async()=>en);
+  h.state.items=[item(record()),item(en)];h.state.detail=record();h.state.selected='a';
+  doc.querySelector('#language').value='EN';await h.filterConversations();
+  assert.equal(h.state.selected,'english');assert.equal(h.state.detail.language,'EN');
+});
+test('late conversation response cannot replace the newest selection',async()=>{
+  const a=deferred(),b=deferred();const {h,doc}=setup(url=>url.endsWith('/a')?a.promise:b.promise);
+  h.state.items=[item(record('a')),item(record('b'))];
+  const first=h.selectConversation('a');const second=h.selectConversation('b');
+  assert.equal(h.state.detail,null);assert.equal(doc.querySelector('#conversation-title').textContent,'Загрузка…');
+  b.resolve(record('b'));await second;a.resolve(record('a'));await first;
+  assert.equal(h.state.detail.conversation_id,'b');assert.equal(h.state.selected,'b');
+});
+test('refresh reruns an active transcript search instead of using old matching IDs',async()=>{
+  const r=record('new');const list={items:[item(r)],total:1,evaluated:0,group:'TEST',budget:{remaining:0,limit:3,configured:true}};
+  const {h,doc}=setup(async url=>url==='/api/conversations'?list:url.startsWith('/api/conversations?')?{items:[item(r)]}:
+    url==='/api/checklist'?{version:1,criteria:[]}:url==='/api/health'?{auth_mode:'local-demo'}:r);
+  h.state.searchIds=new Set(['old']);doc.querySelector('#search').value='needle';
+  await h.loadData();assert.equal(h.state.selected,'new');
+});
+test('pending audio seek is cancelled when another conversation is selected',async()=>{
+  const {h,doc}=setup();h.state.detail=record('a','RU','/audio');
+  await h.seekProof(1);const audio=doc.querySelector('#audio'),callback=audio.listeners.get('loadedmetadata');
+  assert.ok(callback);h.resetAudio();h.state.detail=record('b','RU','/other');await callback();
+  assert.equal(audio.plays,0);assert.equal(audio.listeners.has('loadedmetadata'),false);
+});
+test('only the latest proof click can start audio',async()=>{
+  const {h,doc}=setup();h.state.detail=record('a','RU','/audio');
+  const audio=doc.querySelector('#audio');await h.seekProof(0);const old=audio.listeners.get('loadedmetadata');
+  await h.seekProof(1);const latest=audio.listeners.get('loadedmetadata');await old();assert.equal(audio.plays,0);
+  await latest();assert.equal(audio.currentTime,10);assert.equal(audio.plays,1);
+});
+test('appeal remains attached to the assessment shown when the form opened',()=>{
+  const {h}=setup();const r=record('a');r.evaluation={id:'eval-a',criteria:[{criterion_id:'01',name:'Contact'}]};h.state.detail=r;
+  h.openAppeal('01');h.state.detail=record('b');
+  assert.equal(h.state.appealTarget.conversation_id,'a');assert.equal(h.state.appealTarget.evaluation_id,'eval-a');
+});
+test('manual decision is shown first and previous explanation is collapsed',()=>{
+  const {h,doc}=setup();const r=record();r.status='Evaluated';
+  r.evaluation={id:'e',final_score:90,criteria:[{criterion_id:'01',type:'binary',name:'Contact',value:0,is_na:false,
+    reason:'OLD REASON',override_comment:'CURRENT DECISION',weight:10,normalized_weight:10,earned_score:0,proof_message_index:0,proof_timestamp:'00:30',proof_quote:'Question'}]};
+  h.state.detail=r;h.renderDetail();const html=doc.querySelector('#criteria').innerHTML;
+  assert.ok(html.indexOf('CURRENT DECISION')<html.indexOf('OLD REASON'));
+  assert.ok(html.includes('<summary>Предыдущее обоснование</summary>'));
+});
+test('late search results do not replace newer search results',async()=>{
+  const a=deferred(),b=deferred(),ra=record('a'),rb=record('b');
+  const {h,doc}=setup(url=>url.includes('search=first')?a.promise:url.includes('search=second')?b.promise:rb);
+  h.state.items=[item(ra),item(rb)];doc.querySelector('#search').value='first';const first=h.filterConversations();
+  doc.querySelector('#search').value='second';const second=h.filterConversations();
+  b.resolve({items:[item(rb)]});await second;a.resolve({items:[item(ra)]});await first;
+  assert.equal(h.state.selected,'b');assert.equal(h.state.filtered.length,1);assert.equal(h.state.filtered[0].id,'b');
+});
+test('turning off N/A does not erase its condition from the editor',()=>{
+  const {h,doc}=setup();const values={id:'01',name:'Criterion',description:'Rule',type:'binary',weight:'10',max_scale:'1',levels:'',na_condition:'Keep this condition'};
+  const fields=Object.fromEntries(Object.entries(values).map(([k,value])=>[k,{value}]));fields.allow_na={checked:false};
+  doc.querySelectorAll=selector=>selector==='.editor-criterion'?[{querySelector:s=>fields[s.match(/data-field="(.*?)"/)[1]]}]:[];
+  h.collectEditor();assert.equal(h.state.edit[0].allow_na,false);assert.equal(h.state.edit[0].na_condition,'Keep this condition');
+});
+test('blocked browser storage does not prevent client startup',()=>{
+  const {h}=setup(async()=>({}),{getItem(){throw new Error('storage blocked');}});
+  assert.equal(h.state.token,'');
+});
+test('form errors are readable and do not expose English validation internals',async()=>{
+  const {h,context}=setup();
+  context.fetch=async()=>({ok:false,status:422,json:async()=>({detail:[{msg:'Input should be a valid number'}]})});
+  await assert.rejects(h.api('/api/checklist'),{message:'Проверьте заполненные поля.'});
+  context.fetch=async()=>({ok:false,status:422,json:async()=>({detail:[{msg:'Value error, Укажите ступени шкалы'}]})});
+  await assert.rejects(h.api('/api/checklist'),{message:'Укажите ступени шкалы'});
+});
+test('network failures give a recoverable message',async()=>{
+  const {h,context}=setup();context.fetch=async()=>{throw new TypeError('Failed to fetch');};
+  await assert.rejects(h.api('/api/conversations'),{message:'Нет соединения с сервером. Попробуйте ещё раз.'});
+});

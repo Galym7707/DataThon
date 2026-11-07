@@ -6,14 +6,18 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt = (n, digits = 2) => n == null ? '—' : Number(n).toLocaleString('ru-RU', {maximumFractionDigits: digits});
 const labels = {Pending:'Без оценки', Evaluated:'Проверено', Stale:'Нужна переоценка', Evaluating:'Оценивается', PENDING:'Ожидает решения', APPROVED:'Удовлетворена', REJECTED:'Отклонена', SUPERSEDED:'Предыдущая версия'};
-const state = {items:[], filtered:[], selected:null, detail:null, checklist:null, role:'supervisor', budget:{remaining:0}, busy:false, token:sessionStorage.getItem('cqa-token') || '', edit:[], audit:[], sequence:0};
-let toastTimer;
+function storedToken() { try { return sessionStorage.getItem('cqa-token') || ''; } catch { return ''; } }
+const state = {items:[], filtered:[], selected:null, detail:null, detailLoading:false, detailError:false, checklist:null, role:'supervisor', budget:{remaining:0}, busy:false, token:storedToken(), edit:[], audit:[], sequence:0};
+let toastTimer, searchTimer, loadSequence=0, filterSequence=0, audioSeekSequence=0, pendingAudioSeek;
 
 async function api(path, options = {}) {
-  const response = await fetch((window.CQA_API_BASE || '') + path, {...options, headers:{'Content-Type':'application/json', 'X-Role':state.role, 'X-Supervisor-Token':state.token, ...options.headers}});
+  let response;
+  try { response = await fetch((window.CQA_API_BASE || '') + path, {...options, headers:{'Content-Type':'application/json', 'X-Role':state.role, 'X-Supervisor-Token':state.token, ...options.headers}}); }
+  catch { throw new Error('Нет соединения с сервером. Попробуйте ещё раз.'); }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = response.status === 429 ? 'Лимит проверок исчерпан.' : response.status === 503 ? 'Проверка недоступна. Обратитесь к администратору.' : response.status >= 500 ? 'Не удалось выполнить действие. Попробуйте позже.' : typeof data.detail === 'string' ? data.detail : Array.isArray(data.detail) ? data.detail.map(x => x.msg).join('; ') : `Ошибка сервера (${response.status})`;
+    const validation=Array.isArray(data.detail) ? [...new Set(data.detail.map(x=>/[А-Яа-яЁё]/.test(x.msg || '') ? x.msg.replace(/^Value error,\s*/,'') : 'Проверьте заполненные поля.'))].join(' ') : '';
+    const message = response.status === 403 ? 'Нет доступа. Проверьте роль и пароль в настройках.' : response.status === 429 ? 'Лимит проверок исчерпан.' : response.status === 503 ? (typeof data.detail === 'string' && data.detail.startsWith('Не удалось сохранить') ? data.detail : 'Действие временно недоступно. Попробуйте позже.') : response.status >= 500 ? 'Не удалось выполнить действие. Попробуйте позже.' : typeof data.detail === 'string' ? data.detail : validation || 'Не удалось выполнить действие.';
     throw new Error(message);
   }
   return data;
@@ -30,7 +34,7 @@ function toast(message, error = false) {
     if (!node.matches(':popover-open')) node.showPopover();
   }
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { if (node.matches(':popover-open')) node.hidePopover(); node.hidden = true; }, error ? 10000 : 6500);
+  toastTimer = setTimeout(() => { if ('hidePopover' in node && node.matches(':popover-open')) node.hidePopover(); node.hidden = true; }, error ? 10000 : 6500);
 }
 async function guarded(fn, form) {
   if (form?.classList.contains('busy')) return;
@@ -47,9 +51,21 @@ function updateBudget(budget) {
   state.budget = budget;
   $('#budget').textContent = `Осталось проверок: ${budget.remaining}`;
   $('#settings-budget').textContent = `Осталось проверок: ${budget.remaining} из ${budget.limit}.`;
+  $$('[data-action="batch"]').forEach(button => button.disabled=state.busy || !budget.configured || budget.remaining < 1);
 }
 async function loadData(keepSelection = true) {
-  const [list, checklist, health] = await Promise.all([api('/api/conversations'), api('/api/checklist'), api('/api/health')]);
+  const sequence=++loadSequence;
+  let list,checklist,health;
+  try { [list, checklist, health] = await Promise.all([api('/api/conversations'), api('/api/checklist'), api('/api/health')]); }
+  catch(error) {
+    if(sequence !== loadSequence) return;
+    if(!state.items.length) {
+      $('#conversation-list').innerHTML='<div class="empty">Не удалось загрузить диалоги. Нажмите «Обновить».</div>';
+      $('#data-status').textContent='Нет соединения';
+    }
+    throw error;
+  }
+  if(sequence !== loadSequence) return;
   state.items = list.items;
   state.checklist = checklist;
   updateBudget(list.budget);
@@ -66,11 +82,22 @@ async function loadData(keepSelection = true) {
   $('#group-badge').textContent = list.group;
   $('#checklist-version').textContent = 'Правила оценки';
   $('#data-status').textContent = `${list.total} диалогов`;
-  renderList();
-  const target = keepSelection && list.items.some(r => r.id === state.selected) ? state.selected : state.filtered[0]?.id;
-  if (target) await selectConversation(target);
-  else { state.selected = null; state.detail = null; renderDetail(); }
+  await filterConversations({keepSelection,refreshDetail:true});
   applyRole();
+}
+async function filterConversations({keepSelection=true,refreshDetail=false}={}) {
+  const sequence=++filterSequence, query=$('#search').value.trim();
+  if(query) {
+    const matches=await api(`/api/conversations?search=${encodeURIComponent(query)}`);
+    if(sequence !== filterSequence) return;
+    state.searchIds=new Set(matches.items.map(r=>r.id));
+  } else state.searchIds=null;
+  renderList();
+  const target=keepSelection && state.filtered.some(r=>r.id === state.selected) ? state.selected : state.filtered[0]?.id;
+  if(!target) {
+    ++state.sequence;state.selected=null;state.detail=null;state.detailLoading=false;state.detailError=false;
+    resetAudio();renderDetail();
+  } else if(refreshDetail || state.detail?.conversation_id !== target) await selectConversation(target);
 }
 function renderList() {
   const language = $('#language').value, channel = $('#channel').value, status = $('#status').value;
@@ -82,11 +109,22 @@ function renderList() {
 }
 async function selectConversation(id) {
   const sequence = ++state.sequence;
-  const detail = await api(`/api/conversations/${encodeURIComponent(id)}`);
-  if (sequence !== state.sequence) return;
   state.selected = id;
-  state.detail = detail;
-  renderList(); renderDetail();
+  if(state.detail?.conversation_id !== id) {
+    state.detail=null;state.detailLoading=true;state.detailError=false;
+    resetAudio();renderList();renderDetail();
+    $('#transcript').scrollTop=0;$('#criteria').scrollTop=0;
+  }
+  try {
+    const detail = await api(`/api/conversations/${encodeURIComponent(id)}`);
+    if (sequence !== state.sequence) return;
+    state.detail = detail;state.detailLoading=false;state.detailError=false;
+    renderList(); renderDetail();
+  } catch(error) {
+    if(sequence !== state.sequence) return;
+    state.detail=null;state.detailLoading=false;state.detailError=true;
+    renderDetail();throw error;
+  }
 }
 function displayTime(timestamp) {
   if (timestamp?.includes('T')) {
@@ -96,26 +134,48 @@ function displayTime(timestamp) {
   return timestamp || '—';
 }
 function offsetSeconds(timestamp, start) {
-  if (timestamp.includes('T')) {
-    const delta = (Date.parse(timestamp) - Date.parse(start)) / 1000;
-    return Number.isFinite(delta) ? Math.max(0,delta) : 0;
-  }
-  const parts = timestamp.split(':').map(Number);
-  return parts.every(Number.isFinite) ? parts.reduce((sum,n) => sum*60+n,0) : 0;
+  const parse=value=>{
+    if(typeof value !== 'string') return NaN;
+    if(value.includes('T')) return Date.parse(value)/1000;
+    if(!/^(?:\d+:[0-5]\d|\d+):[0-5]\d(?:\.\d+)?$/.test(value)) return NaN;
+    return value.split(':').map(Number).reduce((sum,n)=>sum*60+n,0);
+  };
+  const delta=parse(timestamp)-parse(start);
+  return Number.isFinite(delta) ? Math.max(0,delta) : 0;
+}
+function cancelAudioSeek() {
+  ++audioSeekSequence;
+  if(pendingAudioSeek) $('#audio').removeEventListener('loadedmetadata',pendingAudioSeek);
+  pendingAudioSeek=null;
+}
+function resetAudio() {
+  cancelAudioSeek();const audio=$('#audio');audio.pause();
+  if(audio.getAttribute('src')) {audio.removeAttribute('src');audio.load();}
+  $('#audio-time').textContent='00:00';$('#audio-panel').hidden=true;
 }
 function mmss(seconds) {
   return `${Math.floor(seconds/60).toString().padStart(2,'0')}:${Math.floor(seconds%60).toString().padStart(2,'0')}`;
 }
 function renderDetail() {
+  updateBudget(state.budget);
   const d = state.detail;
-  if (!d) { $('#transcript').innerHTML = '<div class="empty">Нет диалогов. Загрузите их в настройках.</div>'; $('#score-panel').innerHTML = ''; $('#criteria').innerHTML = ''; return; }
+  $('[data-action="export"]').disabled=!d;
+  if (!d) {
+    $('#conversation-title').textContent=state.detailLoading ? 'Загрузка…' : 'Выберите диалог';
+    $('#conversation-meta').textContent='ПЕРЕПИСКА';$('#message-count').textContent='—';
+    $('#evaluation-status').textContent='Без оценки';$('#evaluation-status').className='badge';
+    const text=state.detailLoading ? 'Загрузка диалога…' : state.detailError ? 'Не удалось открыть диалог. Выберите его ещё раз.' : state.items.length ? 'По выбранным условиям диалогов нет.' : 'Нет диалогов. Загрузите их в настройках.';
+    $('#transcript').innerHTML=`<div class="${state.detailLoading ? 'loading' : 'empty'}">${text}</div>`;
+    $('#score-panel').innerHTML='';$('#criteria').innerHTML='';$('#audio-panel').hidden=true;
+    return;
+  }
   $('#conversation-title').textContent = d.conversation_id;
   $('#conversation-meta').textContent = `${d.channel === 'voice call' ? 'ЗАПИСЬ ЗВОНКА' : 'ПЕРЕПИСКА'} / ${d.language}${d.transcript[0].timestamp.includes('T') ? ' / ВРЕМЯ UTC' : ''}`;
   $('#message-count').textContent = `${d.transcript.length} реплик`;
   const audio = $('#audio');
   $('#audio-panel').hidden = !d.audio_url;
   const audioSource = d.audio_url ? (window.CQA_API_BASE || '') + d.audio_url : '';
-  if (audioSource && audio.getAttribute('src') !== audioSource) { audio.src = audioSource; audio.load(); }
+  if (audioSource && audio.getAttribute('src') !== audioSource) { cancelAudioSeek();audio.pause();audio.src = audioSource;audio.load(); }
   else if (!audioSource && audio.getAttribute('src')) { audio.pause(); audio.removeAttribute('src'); audio.load(); }
   renderTranscript();
   const e = d.evaluation, current = d.status === 'Evaluated';
@@ -124,8 +184,9 @@ function renderDetail() {
   status.className = `badge ${current ? 'green' : d.status === 'Stale' ? 'amber' : ''}`;
   $('#criteria-count').textContent = String(state.checklist.criteria.length).padStart(2,'0');
   const percent = e?.final_score ?? 0;
-  const eligible = !state.busy && state.budget.configured && state.budget.remaining > 0;
-  $('#score-panel').innerHTML = `${d.status === 'Stale' ? '<div class="warning">Эту оценку нужно обновить.</div>' : ''}<div class="score-main"><div class="score-ring" style="--percent:${Math.min(100,Math.max(0,percent))}"><div class="score-value"><strong>${fmt(e?.final_score)}</strong><small>из 100 баллов</small></div></div><div class="score-info">${e ? current ? 'Итоговая оценка' : 'Предыдущая оценка' : 'Готов к проверке'}<p>${e ? `${e.criteria.length} критериев` : `${d.language} · ${d.channel === 'voice call' ? 'голосовой звонок' : 'чат с оператором'}`}</p><p>${e ? `Не учитывается: ${e.criteria.filter(r => r.is_na).length}` : `${state.checklist.criteria.length} критериев`}</p></div></div>${e?.has_gross_violation ? '<div class="violation-warning">⚑ Грубое нарушение</div>' : ''}${state.role === 'supervisor' ? `<button class="button primary" id="evaluate-button" ${!eligible ? 'disabled' : ''}>${state.busy ? 'Оценка выполняется…' : current ? 'Оценить повторно' : 'Оценить диалог'} <span aria-hidden="true">↗</span></button>` : ''}<p class="score-note">${!state.budget.configured ? 'Оценка недоступна. Обратитесь к администратору.' : state.budget.remaining === 0 ? 'Лимит проверок исчерпан.' : e ? 'Проверьте обоснования и цитаты.' : ''}</p>`;
+  const eligible = !state.busy && d.status !== 'Evaluating' && !d.appeals.some(a=>a.status === 'PENDING') && state.budget.configured && state.budget.remaining > 0;
+  const scoreNote=d.appeals.some(a=>a.status === 'PENDING') ? 'Сначала рассмотрите апелляции.' : e && e.final_score == null ? 'Нет применимых критериев с баллами.' : !state.budget.configured ? 'Оценка недоступна. Обратитесь к администратору.' : state.budget.remaining === 0 ? 'Лимит проверок исчерпан.' : e ? 'Проверьте обоснования и цитаты.' : '';
+  $('#score-panel').innerHTML = `${d.status === 'Stale' ? '<div class="warning">Эту оценку нужно обновить.</div>' : ''}<div class="score-main"><div class="score-ring" style="--percent:${Math.min(100,Math.max(0,percent))}"><div class="score-value"><strong>${fmt(e?.final_score)}</strong><small>из 100 баллов</small></div></div><div class="score-info">${e ? current ? 'Итоговая оценка' : 'Предыдущая оценка' : 'Готов к проверке'}<p>${e ? `${e.criteria.length} критериев` : `${d.language} · ${d.channel === 'voice call' ? 'голосовой звонок' : 'чат с оператором'}`}</p><p>${e ? `Не учитывается: ${e.criteria.filter(r => r.is_na).length}` : `${state.checklist.criteria.length} критериев`}</p></div></div>${e?.has_gross_violation ? '<div class="violation-warning">⚑ Грубое нарушение</div>' : ''}${state.role === 'supervisor' ? `<button class="button primary" id="evaluate-button" ${!eligible ? 'disabled' : ''}>${state.busy ? 'Оценка выполняется…' : current ? 'Оценить повторно' : 'Оценить диалог'} <span aria-hidden="true">↗</span></button>` : ''}<p class="score-note">${scoreNote}</p>`;
   if (!e) {
     $('#criteria').innerHTML = state.checklist.criteria.map(c => `<div class="criterion"><div class="criterion-top"><span class="criterion-number">${escapeHTML(c.id)}</span><span class="criterion-name">${escapeHTML(c.name)}</span><span class="criterion-answer na">—</span></div><div class="criterion-math"><span>${c.type === 'flag' ? 'Без баллов' : `Вес ${fmt(c.weight)}`}</span><span>${c.allow_na ? 'Можно не учитывать' : 'Всегда применим'}</span></div></div>`).join('');
     return;
@@ -135,34 +196,41 @@ function renderDetail() {
     const pending = appeals.find(a => a.status === 'PENDING');
     const answer = r.is_na ? 'Не применяется' : r.type === 'scale' ? `${fmt(r.value)} / ${fmt(r.max_scale)}` : r.value === 1 ? 'Да' : 'Нет';
     const good = !r.is_na && (r.type === 'flag' ? r.value === 0 : r.type === 'binary' ? r.value === 1 : r.value === r.max_scale);
-    return `<article class="criterion"><div class="criterion-top"><span class="criterion-number">${escapeHTML(r.criterion_id)}</span><span class="criterion-name">${escapeHTML(r.name)}</span><span class="criterion-answer ${r.is_na ? 'na' : good ? 'pass' : 'fail'}">${answer}</span></div><div class="criterion-math"><span>${r.type === 'flag' ? 'Не влияет на итог' : `Вклад в итог: ${fmt(r.normalized_weight)}%`}</span><span>${r.is_na ? 'Не учитывается' : r.type !== 'flag' ? `Баллы: ${fmt(r.earned_score)}` : 'Отметка о нарушении'}</span></div>${r.type !== 'flag' ? `<div class="criterion-bar"><span style="width:${r.is_na ? 0 : Math.min(100,r.earned_score/(r.normalized_weight || 1)*100)}%"></span></div>` : ''}<p class="criterion-reason">${escapeHTML(r.reason)}</p><button class="proof" data-proof="${r.proof_message_index}" title="Перейти к реплике${d.audio_url ? ' и записи' : ''}"><span class="proof-time">${escapeHTML(displayTime(r.proof_timestamp))} ↗</span><span class="proof-quote">«${escapeHTML(r.proof_quote)}»</span></button>${r.override_comment ? `<p class="override">Решение руководителя: ${escapeHTML(r.override_comment)}</p>` : ''}${pending ? `<div class="appeal-pending"><strong>Апелляция ожидает решения</strong><p>${escapeHTML(pending.comment)}</p>${state.role === 'supervisor' ? `<button class="button ghost" data-resolve="${escapeHTML(pending.id)}">Рассмотреть апелляцию ↗</button>` : ''}</div>` : ''}${current && state.role === 'operator' && !pending ? `<div class="criterion-actions"><button class="button ghost" data-appeal="${escapeHTML(r.criterion_id)}">Оспорить оценку ↗</button></div>` : ''}${appeals.filter(a => a.status !== 'PENDING').map(a => `<details class="appeal-history"><summary>${labels[a.status]} · ${dateTime(a.resolved_at)}</summary><p>${escapeHTML(a.comment)}</p><p>Решение: ${escapeHTML(a.resolution_comment)}</p></details>`).join('')}</article>`;
+    return `<article class="criterion"><div class="criterion-top"><span class="criterion-number">${escapeHTML(r.criterion_id)}</span><span class="criterion-name">${escapeHTML(r.name)}</span><span class="criterion-answer ${r.is_na ? 'na' : good ? 'pass' : 'fail'}">${answer}</span></div><div class="criterion-math"><span>${r.type === 'flag' ? 'Не влияет на итог' : `Вклад в итог: ${fmt(r.normalized_weight)}%`}</span><span>${r.is_na ? 'Не учитывается' : r.type !== 'flag' ? `Баллы: ${fmt(r.earned_score)}` : 'Отметка о нарушении'}</span></div>${r.type !== 'flag' ? `<div class="criterion-bar"><span style="width:${r.is_na ? 0 : Math.min(100,r.earned_score/(r.normalized_weight || 1)*100)}%"></span></div>` : ''}<p class="criterion-reason">${r.override_comment ? "Решение руководителя: " : ""}${escapeHTML(r.override_comment || r.reason)}</p><button class="proof" data-proof="${r.proof_message_index}" title="Перейти к реплике${d.audio_url ? ' и записи' : ''}"><span class="proof-time">${escapeHTML(displayTime(r.proof_timestamp))} ↗</span><span class="proof-quote">«${escapeHTML(r.proof_quote)}»</span></button>${r.override_comment ? `<details class="appeal-history"><summary>Предыдущее обоснование</summary><p>${escapeHTML(r.reason)}</p></details>` : ''}${pending ? `<div class="appeal-pending"><strong>Апелляция ожидает решения</strong><p>${escapeHTML(pending.comment)}</p>${state.role === 'supervisor' ? `<button class="button ghost" data-resolve="${escapeHTML(pending.id)}">Рассмотреть апелляцию ↗</button>` : ''}</div>` : ''}${current && state.role === 'operator' && !pending ? `<div class="criterion-actions"><button class="button ghost" data-appeal="${escapeHTML(r.criterion_id)}">Оспорить оценку ↗</button></div>` : ''}${appeals.filter(a => a.status !== 'PENDING').map(a => `<details class="appeal-history"><summary>${labels[a.status]} · ${dateTime(a.resolved_at)}</summary><p>${escapeHTML(a.comment)}</p><p>Решение: ${escapeHTML(a.resolution_comment)}</p></details>`).join('')}</article>`;
   }).join('');
 }
 function renderTranscript() {
   const show = $('#show-context').checked;
+  const scrollTop=$('#transcript').scrollTop;
   const speakers = {client:'Клиент', operator:'Оператор', bot:'Бот', system:'Система'};
   $('#transcript').innerHTML = state.detail.transcript.map((m,i) => {
     const hidden = !show && ['bot','system'].includes(m.speaker) ? 'hidden' : '';
     if (m.speaker === 'system') return `<div id="message-${i}" class="message system" ${hidden}><span>${escapeHTML(m.text)}</span><time>${escapeHTML(displayTime(m.timestamp))}</time></div>`;
     return `<article id="message-${i}" class="message ${m.speaker}" ${hidden}><div class="message-meta"><span class="speaker-avatar">${m.speaker === 'bot' ? 'AI' : m.speaker === 'operator' ? 'ОП' : 'КЛ'}</span><strong>${speakers[m.speaker]}</strong><time>${escapeHTML(displayTime(m.timestamp))}</time></div><div class="message-text">${escapeHTML(m.text)}</div></article>`;
   }).join('');
+  $('#transcript').scrollTop=scrollTop;
 }
 async function seekProof(index) {
-  const m = state.detail.transcript[index];
+  const detail=state.detail;if(!detail) return;
+  const m = detail.transcript[index];
   if (!m) return;
   if (['bot','system'].includes(m.speaker) && !$('#show-context').checked) { $('#show-context').checked = true; renderTranscript(); }
   const node = $(`#message-${index}`);
   node.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block:'center'});
   node.classList.add('flash'); setTimeout(() => node.classList.remove('flash'),1800);
-  if (state.detail.audio_url) {
+  cancelAudioSeek();
+  if (detail.audio_url) {
     const audio = $('#audio');
-    const offset = offsetSeconds(m.timestamp,state.detail.transcript[0].timestamp);
+    const sequence=audioSeekSequence, id=detail.conversation_id;
+    const offset = offsetSeconds(m.timestamp,detail.transcript[0].timestamp);
     const seek = async () => {
+      if(sequence !== audioSeekSequence || state.detail?.conversation_id !== id) return;
+      pendingAudioSeek=null;
       audio.currentTime = Number.isFinite(audio.duration) ? Math.min(offset,audio.duration) : offset;
       try { await audio.play(); } catch { toast('Нажмите кнопку воспроизведения в записи.',true); }
     };
     if (audio.readyState >= 1) await seek();
-    else { audio.addEventListener('loadedmetadata',seek,{once:true}); audio.load(); }
+    else { pendingAudioSeek=seek;audio.addEventListener('loadedmetadata',seek,{once:true});audio.load(); }
   }
 }
 function dateTime(value) {
@@ -180,7 +248,7 @@ async function evaluateSelected() {
   } finally { state.busy = false; await loadData(); }
 }
 function openAppeal(id) {
-  state.appealCriterion = id;
+  state.appealTarget={conversation_id:state.detail.conversation_id,criterion_id:id,evaluation_id:state.detail.evaluation.id};
   $('#appeal-form').reset();
   $('#appeal-criterion').textContent = `${id} · ${state.detail.evaluation.criteria.find(r => r.criterion_id === id).name}`;
   $('#appeal-dialog').showModal();
@@ -206,7 +274,7 @@ function collectEditor() {
     const type = v('type').value, allow_na = type !== 'flag' && v('allow_na').checked;
     return {id:v('id').value.trim(),name:v('name').value.trim(),description:v('description').value.trim(),
       type, weight:type === 'flag' ? 0 : Number(v('weight').value),max_scale:type === 'scale' ? Number(v('max_scale').value) : 1,
-      levels:type === 'scale' ? v('levels').value.split(',').map(s => Number(s.trim())) : [],allow_na,na_condition:allow_na ? v('na_condition').value.trim() : ''};
+      levels:type === 'scale' ? v('levels').value.split(',').filter(s=>s.trim()).map(s => Number(s.trim())) : [],allow_na,na_condition:v('na_condition').value.trim()};
   });
 }
 function renderEditor() {
@@ -237,6 +305,7 @@ const actions = {
   'export':() => { if (state.detail) download(`${state.selected}-cqa.json`,state.detail); },
   'settings':() => { $('#settings-form').elements.token.value=state.token; $('#settings-form').elements.group.value=$('#group-badge').textContent; $('#settings-dialog').showModal(); },
   'batch':() => {
+    if(state.busy) return toast('Дождитесь завершения проверки.',true);
     const count = Math.min(state.filtered.filter(r => r.status !== 'Evaluated').length,state.budget.remaining);
     if (count <= 0 || !state.budget.configured) return toast('Нет доступных проверок или диалогов без оценки.',true);
     $('#batch-form').elements.count.max=count; $('#batch-form').elements.count.value=1;
@@ -260,25 +329,18 @@ document.addEventListener('click', event => {
   if (event.target.closest('#evaluate-button')) return void guarded(evaluateSelected);
 });
 $('#role').addEventListener('change', () => { state.role=$('#role').value; applyRole(); });
-for (const id of ['language','channel','status']) $(`#${id}`).addEventListener('change',renderList);
-let searchTimer, searchSequence=0;
+for (const id of ['language','channel','status']) $(`#${id}`).addEventListener('change',()=>guarded(()=>filterConversations()));
 $('#search').addEventListener('input', () => {
-  clearTimeout(searchTimer); const sequence = ++searchSequence;
-  searchTimer=setTimeout(() => guarded(async () => {
-    const query = $('#search').value.trim();
-    if (!query) { state.searchIds=null; return renderList(); }
-    const data=await api(`/api/conversations?search=${encodeURIComponent(query)}`);
-    if (sequence !== searchSequence) return;
-    state.searchIds=new Set(data.items.map(r => r.id)); renderList();
-  }),200);
+  clearTimeout(searchTimer);++filterSequence;
+  searchTimer=setTimeout(()=>guarded(()=>filterConversations()),200);
 });
 $('#show-context').addEventListener('change', () => { if (state.detail) renderTranscript(); });
 $('#audio').addEventListener('timeupdate', () => { $('#audio-time').textContent=mmss($('#audio').currentTime); });
-$('#audio').addEventListener('error', () => { if (state.detail?.audio_url) toast('Не удалось загрузить запись.',true); });
+$('#audio').addEventListener('error', () => { cancelAudioSeek();if (state.detail?.audio_url && $('#audio').getAttribute('src')) toast('Не удалось загрузить запись.',true); });
 $('#appeal-form').addEventListener('submit', event => {
   event.preventDefault(); const form=event.currentTarget;
   guarded(async () => {
-    await post('/api/appeals/submit',{conversation_id:state.selected,criterion_id:state.appealCriterion,comment:form.elements.comment.value.trim(),evaluation_id:state.detail.evaluation.id});
+    await post('/api/appeals/submit',{...state.appealTarget,comment:form.elements.comment.value.trim()});
     $('#appeal-dialog').close(); await loadData(); toast('Апелляция отправлена.');
   },form);
 });
@@ -327,7 +389,7 @@ $('#checklist-form').addEventListener('invalid', event => {
 },true);
 $('#settings-form').addEventListener('submit', event => {
   event.preventDefault(); state.token=event.currentTarget.elements.token.value.trim();
-  if (state.token) sessionStorage.setItem('cqa-token',state.token); else sessionStorage.removeItem('cqa-token');
+  try { if (state.token) sessionStorage.setItem('cqa-token',state.token); else sessionStorage.removeItem('cqa-token'); } catch { /* Access remains valid for this open page. */ }
   $('#settings-dialog').close(); toast('Настройки сохранены.');
 });
 $('#refresh-dataset').addEventListener('click', () => guarded(async () => {
@@ -340,11 +402,12 @@ $('#refresh-dataset').addEventListener('click', () => guarded(async () => {
 $('#batch-form').addEventListener('submit', event => {
   event.preventDefault(); const form=event.currentTarget;
   guarded(async () => {
+    if(state.busy) throw new Error('Дождитесь завершения проверки.');
     const ids=state.filtered.filter(r => r.status !== 'Evaluated').slice(0,Number(form.elements.count.value)).map(r => r.id);
     $('#batch-dialog').close(); state.busy=true; renderDetail(); toast(`Проверяем диалоги: ${ids.length}.`);
     try {
       const result=await post('/api/evaluate-batch',{conversation_ids:ids});
-      toast(result.error ? `Завершено ${result.completed.length}. ${result.error}` : `Проверено ${result.completed.length} диалогов.`,Boolean(result.error));
+      toast(result.error ? `Проверено: ${result.completed.length}. Остальные диалоги не удалось проверить.` : `Проверено ${result.completed.length} диалогов.`,Boolean(result.error));
     } finally { state.busy=false; await loadData(); }
   },form);
 });

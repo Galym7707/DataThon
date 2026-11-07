@@ -1,6 +1,6 @@
 """Deterministic checklist validation and scoring; no network or LLM arithmetic."""
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Literal
+from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -10,14 +10,19 @@ class Criterion(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     description: str = Field(min_length=1, max_length=2500)
     type: Literal["binary", "scale", "flag"]
-    weight: float = Field(ge=0, le=10000)
-    max_scale: float = Field(default=1, gt=0, le=10000)
-    levels: list[float] = Field(default_factory=list, max_length=50)
-    allow_na: bool = False
+    weight: float = Field(ge=0, le=10000, strict=True)
+    max_scale: float = Field(default=1, gt=0, le=10000, strict=True)
+    levels: list[Annotated[float, Field(strict=True)]] = Field(default_factory=list, max_length=50)
+    allow_na: bool = Field(default=False, strict=True)
     na_condition: str = Field(default="", max_length=1000)
 
     @model_validator(mode="after")
     def check(self):
+        self.name = self.name.strip()
+        self.description = self.description.strip()
+        self.na_condition = self.na_condition.strip()
+        if not self.name or not self.description:
+            raise ValueError("Название и правило не должны быть пустыми")
         if self.allow_na and not self.na_condition.strip():
             raise ValueError("Для N/A нужно условие неприменимости")
         if self.type == "flag" and (self.weight != 0 or self.allow_na):
@@ -38,7 +43,7 @@ class Criterion(BaseModel):
 
 class ChecklistUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    version: int = Field(ge=1)
+    version: int = Field(ge=1, strict=True)
     criteria: list[Criterion] = Field(min_length=1, max_length=30)
 
     @model_validator(mode="after")

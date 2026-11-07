@@ -2,6 +2,7 @@
 import json
 import os
 from openai import OpenAI, OpenAIError
+from jsonschema import Draft202012Validator, ValidationError
 from .scoring_engine import validate_value
 
 SYSTEM_PROMPT = """Ты аудитор качества Freedom CQA. Оценивай ТОЛЬКО оператора по переданному
@@ -11,9 +12,10 @@ SYSTEM_PROMPT = """Ты аудитор качества Freedom CQA. Оцени�
 Не выдумывай политику банка, факты, цитаты или действия. Отличай отсутствие доказательств
 от неприменимости: необходимое, но пропущенное действие = 0, НЕ N/A.
 N/A только при allow_na и выполнении na_condition; тогда value=null и объясни условие.
-Для исходного 02: если до первого ответа оператора уже хватало данных (например, известны
-запрос и устройство/веб-версия), ставь N/A. Простое использование известных деталей НЕ
-делает этот критерий Да: Да требует необходимого уточнения недостающих данных.
+Единственный источник правил — переданный checklist. Не добавляй требований по номеру
+критерия или по предыдущей версии чек-листа. Применяй description и na_condition каждого
+критерия, даже если его название или номер похожи на знакомый стандартный чек-лист.
+Если условие N/A выполнено, выбирай N/A, а не Да за использование уже известных данных.
 Для binary/flag value 1=Да, 0=Нет. Для scale только указанные levels.
 Не рассчитывай веса/итог. Ответы и объяснения на русском, цитаты на исходном языке.
 Для каждого критерия дай короткий reason (до 45 слов), точную короткую непрерывную
@@ -21,11 +23,10 @@ proof_quote (без многоточий/перефразирования, до 
 (нулевой индекс реплики), proof_timestamp ТОЧНО из той же реплики.
 При пропущенном действии цитируй место, где оно ожидалось. При N/A — подтверждающий
 контекст. Не приписывай боту приветствие оператора. Не трактуй ясность как полноту.
-Закрытие требует (итог ИЛИ дальнейшая помощь) И прощание.
-Например, только «Пожалуйста. Хорошего вечера!», «Оқасы жоқ. Сау болыңыз!» или
-«You're welcome. Goodbye!» без итога или предложения помощи — 07=0, а не 1.
-Не штрафуй и не поощряй за порог первой реакции в 3 минуты: он исключён из чек-листа.
-Грубые ошибки: оскорбление, частная платная услуга/личный перевод, утечка. Если триггеров нет, 0.
+Соблюдай все части правила: И требует обе части, ИЛИ допускает одну из них. Если правило
+требует итог или дальнейшую помощь вместе с прощанием, одного прощания недостаточно.
+Флаги оценивай по их описанию, отдельно от баллов. Не добавляй пороги времени и другие
+требования, которых нет в переданных правилах.
 Если факт проверить нельзя, прямо скажи это в reason. Верни JSON по схеме."""
 
 
@@ -96,13 +97,16 @@ def evaluate(conversation, criteria):
     usage = completion.usage
     usage_data = {"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens,
                   "total_tokens": usage.total_tokens} if usage else {}
-    choice = completion.choices[0]
     try:
+        if not completion.choices:
+            raise ValueError("ИИ не вернул оценку")
+        choice = completion.choices[0]
         if choice.finish_reason != "stop" or choice.message.refusal:
             raise ValueError("ИИ не завершил оценку или отказал; оценка не сохранена")
         result = json.loads(choice.message.content or "{}")
+        Draft202012Validator(response_schema(criteria)).validate(result)
         results = validate_evidence(list(result["results"].values()), criteria, conversation["transcript"])
-    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+    except (ValueError, KeyError, TypeError, AttributeError, ValidationError) as exc:
         message = str(exc) if isinstance(exc, ValueError) and not isinstance(exc,json.JSONDecodeError) else "Некорректная структура ответа ИИ"
         raise EvaluationValidationError(message, usage_data) from None
     return {"results": results, "model": completion.model, "usage": usage_data}

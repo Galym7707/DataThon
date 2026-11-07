@@ -17,11 +17,13 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal
 
 from . import ai_evaluator
+from .dataset import unpack_dataset
 from .scoring_engine import Criterion, ChecklistUpdate, default_checklist, score_evaluation, validate_value
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -53,12 +55,17 @@ def cache_audio(url, destination):
         content_type = upstream.headers.get("Content-Type", "application/octet-stream").lower()
         if "text/html" in content_type:
             # Read only a small HTML envelope, never a remote script.
-            envelope = next(upstream.iter_content(65536), b"").decode("utf-8", errors="replace")
+            envelope_bytes = bytearray()
+            for chunk in upstream.iter_content(16384):
+                envelope_bytes.extend(chunk)
+                if len(envelope_bytes) > 65536:
+                    raise ValueError("Страница записи слишком велика")
+            envelope = envelope_bytes.decode("utf-8", errors="replace")
             parser = MediaSourceParser(); parser.feed(envelope)
             upstream.close()
             media_url = parser.sources[0] if parser.sources else ""
             parsed = urlsplit(media_url)
-            if parsed.scheme != "https" or parsed.hostname != "freedomholdingcorporation.crm11.dynamics.com":
+            if parsed.scheme != "https" or parsed.hostname != "freedomholdingcorporation.crm11.dynamics.com" or parsed.username or parsed.password:
                 raise ValueError("Неизвестный источник аудио")
             upstream = requests.get(media_url, stream=True, timeout=30, allow_redirects=False)
             if upstream.status_code != 200:
@@ -72,6 +79,11 @@ def cache_audio(url, destination):
                 if len(raw) > 80 * 1024 * 1024:
                     raise ValueError("Запись слишком велика")
             payload = json.loads(raw)
+            if not isinstance(payload, dict) or not isinstance(payload.get("$content"), str):
+                raise ValueError("Ответ не содержит запись")
+            media_type = payload.get("$content-type", "audio/mpeg")
+            if not isinstance(media_type, str) or not (media_type.startswith("audio/") or media_type == "application/octet-stream"):
+                raise ValueError("Неподдерживаемый формат записи")
             content = base64.b64decode(payload["$content"], validate=True)
             if len(content) > 60 * 1024 * 1024:
                 raise ValueError("Запись слишком велика")
@@ -109,34 +121,8 @@ def semantic_hash(criteria):
     return digest([{k: v for k, v in c.items() if k != "weight"} for c in normalized])
 
 
-def unpack_dataset(payload):
-    if not isinstance(payload, dict) or payload.get("isSuccess") is not True:
-        raise ValueError("Ожидался успешный ответ API организаторов")
-    data = payload.get("data", {})
-    records = data.get("records")
-    if not isinstance(records, list) or not records or len(records) > 5000:
-        raise ValueError("Пустой или некорректный records")
-    seen = set()
-    for r in records:
-        cid = r.get("conversation_id")
-        if not isinstance(cid, str) or not cid or cid in seen or len(cid) > 100:
-            raise ValueError("Некорректный или повторяющийся conversation_id")
-        seen.add(cid)
-        if r.get("language") not in ("RU", "KZ", "EN") or r.get("channel") not in ("agent chat", "voice call"):
-            raise ValueError("Неподдерживаемый язык или канал")
-        if not isinstance(r.get("transcript"), list) or not r["transcript"]:
-            raise ValueError("Нужна непустая транскрипция")
-        for m in r["transcript"]:
-            if m.get("speaker") not in ("client", "operator", "bot", "system") or not all(
-                    isinstance(m.get(k), str) for k in ("text", "timestamp")):
-                raise ValueError("Некорректная реплика")
-        if r.get("audio_url"):
-            u = urlsplit(r["audio_url"])
-            if u.scheme != "https" or not (u.hostname or "").endswith(".api.powerplatform.com"):
-                raise ValueError("Аудио должно быть на HTTPS-сервере организаторов Power Platform")
-    if data.get("total_records", len(records)) != len(records):
-        raise ValueError("total_records не совпадает с количеством записей")
-    return data.get("dataset_group_id", "DEV"), records
+class StorageError(RuntimeError):
+    """A failed commit; the in-memory state has been rolled back."""
 
 
 class Store:
@@ -153,12 +139,26 @@ class Store:
                          "dataset_group_id": "DEV", "records": {}, "evaluations": {},
                          "history": {}, "appeals": [], "audit": [],
                          "budget": {"attempts": 0, "prompt_tokens": 0, "completion_tokens": 0}}
+        self._committed = copy.deepcopy(self.data)
 
     def save(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(self.data, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
-        os.replace(temporary, self.path)
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            payload = json.dumps(self.data, ensure_ascii=False, indent=2, allow_nan=False)
+            with temporary.open("w", encoding="utf-8") as file:
+                file.write(payload)
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(temporary, self.path)
+        except (OSError, ValueError, TypeError):
+            self.data = copy.deepcopy(self._committed)
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise StorageError("Не удалось сохранить изменения. Проверьте доступ к папке данных и свободное место.") from None
+        self._committed = copy.deepcopy(self.data)
 
     def event(self, action, role, **details):
         self.data["audit"].append({"id": str(uuid.uuid4()), "timestamp": now(),
@@ -178,13 +178,16 @@ class Store:
         with self.lock:
             if self.active:
                 raise HTTPException(409, "Дождитесь завершения оценки")
+            incoming = {r["conversation_id"] for r in records}
+            for removed in set(self.data["records"]) - incoming:
+                self.supersede_appeals(removed)
             for r in records:
                 cid = r["conversation_id"]
                 previous = self.data["records"].get(cid)
                 if previous and digest(previous) != digest(r):
                     self.supersede_appeals(cid)
             # Retain history and archived appeals across group changes.
-            self.data["records"] = {r["conversation_id"]: r for r in records}
+            self.data["records"] = {r["conversation_id"]: copy.deepcopy(r) for r in records}
             self.data["dataset_group_id"] = group
             self.event("dataset_imported", "supervisor", records=len(records), group=group)
             self.save()
@@ -220,8 +223,8 @@ class ResolveAppeal(BaseModel):
     criterion_id: str
     appeal_id: str
     action: Literal["APPROVED", "REJECTED"]
-    new_score: float | None = None
-    is_na: bool = False
+    new_score: float | None = Field(default=None, strict=True)
+    is_na: bool = Field(default=False, strict=True)
     resolution_comment: str = Field(min_length=5, max_length=3000)
 
 
@@ -234,12 +237,16 @@ def create_app(store_path=None, dataset_file=None):
     app = FastAPI(title="Freedom CQA", version="1.0.0")
     store = Store(store_path or ROOT / os.getenv("DATA_STORE_PATH", "data/data_store.json"))
     app.state.store = store
+    @app.exception_handler(StorageError)
+    async def storage_error_handler(request, exc):
+        return JSONResponse(status_code=503, content={"detail": str(exc)})
     source = Path(dataset_file or ROOT / os.getenv("DATASET_FILE", "data/dev_dataset.json"))
     if not store.data["records"] and source.exists():
         store.import_data(json.loads(source.read_text(encoding="utf-8-sig")))
-    app.add_middleware(CORSMiddleware, allow_origins=os.getenv(
-        "CORS_ORIGINS", "http://127.0.0.1:8000,http://localhost:8000").split(","),
-        allow_methods=["GET", "POST"], allow_headers=["Content-Type", "X-Role", "X-Supervisor-Token"])
+    app.add_middleware(CORSMiddleware, allow_origins=[origin.strip() for origin in os.getenv(
+        "CORS_ORIGINS", "http://127.0.0.1:8000,http://localhost:8000").split(",") if origin.strip()],
+        allow_methods=["GET", "POST"], allow_headers=["Content-Type", "X-Role", "X-Supervisor-Token", "Range"],
+        expose_headers=["Accept-Ranges", "Content-Range", "Content-Length"])
 
     def role(request, expected=None):
         value = request.headers.get("x-role", "operator")
@@ -286,10 +293,10 @@ def create_app(store_path=None, dataset_file=None):
     def conversation(cid: str):
         with store.lock:
             r = copy.deepcopy(get_record(cid))
-            r["audio_url"] = f"/api/conversations/{cid}/audio" if r.get("audio_url") else None
-            return {**r, "status": store.status(cid), "evaluation": store.data["evaluations"].get(cid),
+            r["audio_url"] = f"/api/conversations/{cid}/audio?v={digest(r['audio_url'])[:16]}" if r.get("audio_url") else None
+            return copy.deepcopy({**r, "status": store.status(cid), "evaluation": store.data["evaluations"].get(cid),
                     "appeals": [a for a in store.data["appeals"] if a["conversation_id"] == cid],
-                    "history": store.data["history"].get(cid, [])}
+                    "history": store.data["history"].get(cid, [])})
 
     @app.get("/api/checklist")
     def checklist():
@@ -313,7 +320,7 @@ def create_app(store_path=None, dataset_file=None):
             store.data["checklist"] = {"version": version, "criteria": criteria}
             count = 0
             for cid, e in store.data["evaluations"].items():
-                if e["semantic_hash"] == semantic_hash(criteria):
+                if cid in store.data["records"] and e["semantic_hash"] == semantic_hash(criteria) and e["transcript_hash"] == digest(store.data["records"][cid]):
                     store.archive(cid)
                     e.update(score_evaluation(criteria, e["results"]), checklist_version=version, rescored_at=now())
                     count += 1
@@ -344,8 +351,10 @@ def create_app(store_path=None, dataset_file=None):
             store.event("evaluation_started", "supervisor", conversation_id=cid, checklist_version=config["version"])
             store.save()
             store.active.add(cid)
+        usage = {}
         try:
             raw = ai_evaluator.evaluate(record, config["criteria"])
+            usage = raw["usage"]
             evaluation = {**score_evaluation(config["criteria"], raw["results"]), "results": raw["results"],
                           "id": str(uuid.uuid4()), "created_at": now(), "checklist_version": config["version"],
                           "semantic_hash": semantic_hash(config["criteria"]), "transcript_hash": digest(record),
@@ -360,14 +369,14 @@ def create_app(store_path=None, dataset_file=None):
                 return {"evaluation": evaluation, "cached": False, "budget": store.budget()}
         except Exception as exc:
             with store.lock:
-                usage = getattr(exc, "usage", {})
+                usage = getattr(exc, "usage", usage)
                 for key in ("prompt_tokens", "completion_tokens"):
                     store.data["budget"][key] += usage.get(key, 0)
                 store.event("evaluation_failed", "supervisor", conversation_id=cid, error_type=type(exc).__name__, usage=usage)
                 store.save()
             # Known evaluator errors have deliberately sanitized messages.
             detail = str(exc) if isinstance(exc, (ValueError, RuntimeError)) else "Некорректный ответ ИИ; оценка не сохранена"
-            raise HTTPException(502, detail) from None
+            raise HTTPException(503 if isinstance(exc, StorageError) else 502, detail) from None
         finally:
             with store.lock:
                 store.active.discard(cid)
@@ -382,8 +391,12 @@ def create_app(store_path=None, dataset_file=None):
         role(request, "supervisor")
         ids = list(dict.fromkeys(body.conversation_ids))
         with store.lock:
+            if store.active:
+                raise HTTPException(409, "Уже выполняется оценка. Дождитесь завершения")
             for cid in ids:
                 get_record(cid)
+                if store.status(cid) != "Evaluated" and any(a["conversation_id"] == cid and a["status"] == "PENDING" for a in store.data["appeals"]):
+                    raise HTTPException(409, "Сначала рассмотрите ожидающие апелляции")
             need = sum(store.status(cid) != "Evaluated" for cid in ids)
             if need > store.budget()["remaining"]:
                 raise HTTPException(429, "Пакет превышает оставшийся лимит. Выберите меньше диалогов")
@@ -456,7 +469,7 @@ def create_app(store_path=None, dataset_file=None):
             events = store.data["audit"]
             if conversation_id:
                 events = [e for e in events if e.get("conversation_id") == conversation_id or e.get("appeal", {}).get("conversation_id") == conversation_id]
-            return {"events": events}
+            return {"events": copy.deepcopy(events)}
 
     @app.post("/api/dataset/refresh")
     def refresh(request: Request, group_id: str = Query("DEV", pattern=r"^[A-Za-z0-9_-]{1,40}$")):
@@ -489,6 +502,8 @@ def create_app(store_path=None, dataset_file=None):
             return FileResponse(destination, media_type="audio/mpeg", headers={"Cache-Control": "private, max-age=3600"})
         except (requests.RequestException, ValueError, KeyError):
             raise HTTPException(502, "Аудио временно недоступно; транскрипция сохранена") from None
+        except OSError:
+            raise HTTPException(503, "Не удалось сохранить запись. Проверьте свободное место.") from None
 
     app.mount("/static", StaticFiles(directory=ROOT / "frontend"), name="static")
 
