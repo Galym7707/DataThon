@@ -203,3 +203,20 @@ dialog label { font-size:12px; }
 .filter-label { display:block; margin:10px 0 4px; color:var(--muted); font-size:11px; }
 .field-help { margin:5px 0 12px; color:var(--muted); font-size:12px; }
 .score-info .score-source { color:var(--text-secondary); font-size:11px; }
+
+/* Import is available in the main workspace, independently of the AI budget. */
+.item-id { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#upload-dialog { width:min(720px,calc(100vw - 28px)); }
+#upload-form textarea { width:100%; min-height:180px; font-size:13px; line-height:1.7; }
+#upload-form .form-row>label { flex:1; }
+#upload-form .dialog-footer { flex-wrap:wrap; gap:10px; }
+#upload-form .dialog-footer .quiet { margin-right:auto; max-width:220px; }
+#upload-file { width:100%; padding:12px; border:1px dashed var(--control-border); border-radius:6px; margin-top:7px; background:var(--raised); }
+#upload-file::file-selector-button { padding:7px 10px; margin-right:10px; border:1px solid var(--control-border); border-radius:4px; color:var(--text); background:var(--surface); cursor:pointer; }
+.form-error { color:var(--red); font-size:12px; }
+@media(max-width:650px) { .workspace-actions .upload-trigger { grid-column:1/-1; }.workspace-actions .upload-trigger~.budget { grid-row:2; }#upload-form .dialog-footer .quiet { max-width:none; width:100%; }#upload-dialog { padding:18px; } }
+
+#upload-form { display:flex; flex-direction:column; max-height:calc(88svh - 48px); }
+#upload-form>.dialog-heading,#upload-form>.dialog-footer { flex-shrink:0; }
+.upload-body { min-height:0; overflow-y:auto; padding-right:6px; overscroll-behavior:contain; }
+#upload-form>.dialog-footer { margin-top:14px; }

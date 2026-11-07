@@ -7,11 +7,11 @@
   <meta name="description" content="Freedom CQA — проверка качества диалогов и работа с апелляциями.">
   <title>Freedom CQA · Качество диалогов</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%2310b981'/%3E%3Cpath d='M9 8h16l-3 5H14v4h7l-3 5h-4v5H9z' fill='%230f172a'/%3E%3C/svg%3E">
-  <script src="/static/theme.js?v=12"></script>
-  <link rel="stylesheet" href="/static/styles.css?v=12">
-  <link rel="stylesheet" href="/static/themes.css?v=12">
-  <link rel="stylesheet" href="/static/workspace.css?v=12">
-  <script src="/static/app.js?v=12" defer></script>
+  <script src="/static/theme.js?v=15"></script>
+  <link rel="stylesheet" href="/static/styles.css?v=15">
+  <link rel="stylesheet" href="/static/themes.css?v=15">
+  <link rel="stylesheet" href="/static/workspace.css?v=15">
+  <script src="/static/app.js?v=15" defer></script>
 </head>
 <body>
   <a class="skip" href="#transcript">К переписке</a>
@@ -41,7 +41,7 @@
       </section>
 
       <section id="conversations-view" aria-label="Работа с диалогами">
-      <div class="workspace-bar"><div class="workspace-tabs"><button class="button subtle list-toggle" data-action="toggle-list" aria-expanded="false">Список диалогов</button><span class="tab active">Все диалоги <span id="tab-count">0</span></span><span id="checklist-version" hidden></span></div><div class="workspace-actions"><span id="budget" class="budget">Осталось проверок: —</span><button class="button subtle supervisor-only" data-action="batch">Проверить несколько <span aria-hidden="true">↗</span></button><button class="button subtle supervisor-only" data-action="checklist">Правила оценки</button></div></div>
+      <div class="workspace-bar"><div class="workspace-tabs"><button class="button subtle list-toggle" data-action="toggle-list" aria-expanded="false">Список диалогов</button><span class="tab active">Все диалоги <span id="tab-count">0</span></span><span id="checklist-version" hidden></span></div><div class="workspace-actions"><button class="button primary supervisor-only upload-trigger" data-action="upload">Загрузить диалог</button><span id="budget" class="budget">Осталось проверок: —</span><button class="button subtle supervisor-only" data-action="batch">Проверить несколько <span aria-hidden="true">↗</span></button><button class="button subtle supervisor-only" data-action="checklist">Правила оценки</button></div></div>
 
       <button class="queue-backdrop" data-action="toggle-list" aria-label="Закрыть список" hidden></button>
       <div class="workbench">
@@ -65,6 +65,19 @@
   <dialog id="appeal-dialog"><form id="appeal-form"><div class="dialog-heading"><div><h2>Подать апелляцию</h2></div><button type="button" class="icon-button" data-close aria-label="Закрыть">×</button></div><p id="appeal-criterion" class="dialog-subtitle"></p><label>Основание<textarea name="comment" required minlength="5" maxlength="3000" rows="5" placeholder="С чем вы не согласны?"></textarea></label><div class="dialog-footer"><button type="button" class="button subtle" data-close>Отмена</button><button class="button primary">Отправить апелляцию</button></div></form></dialog>
 
   <dialog id="resolve-dialog"><form id="resolve-form"><div class="dialog-heading"><div><h2>Рассмотреть апелляцию</h2></div><button type="button" class="icon-button" data-close aria-label="Закрыть">×</button></div><p id="resolve-criterion" class="dialog-subtitle"></p><blockquote id="operator-comment"></blockquote><div class="form-row"><label>Решение<select name="action"><option value="APPROVED">Удовлетворить</option><option value="REJECTED">Отклонить</option></select></label><label>Новая оценка<select name="value" id="resolve-value"></select></label></div><label>Обоснование решения<textarea name="resolution_comment" required minlength="5" maxlength="3000" rows="4" placeholder="Почему принято это решение?"></textarea></label><div class="dialog-footer"><button type="button" class="button subtle" data-close>Отмена</button><button class="button primary">Сохранить решение</button></div></form></dialog>
+
+  <dialog id="upload-dialog" aria-labelledby="upload-heading"><form id="upload-form">
+    <div class="dialog-heading"><h2 id="upload-heading">Загрузить диалог</h2><button type="button" class="icon-button" data-close aria-label="Закрыть">×</button></div>
+    <div class="upload-body"><label class="upload-file-label">Выберите файл<input id="upload-file" type="file" accept=".txt,.docx,.pdf" aria-describedby="upload-file-help"></label>
+    <p id="upload-file-help" class="field-help">TXT, DOCX или PDF с текстом · до 5 МБ</p>
+    <p id="upload-file-status" class="quiet" role="status" aria-live="polite" hidden></p>
+    <label>Название<input name="title" maxlength="120" placeholder="Например, консультация по тарифу" required></label>
+    <div class="form-row"><label>Язык<select name="language"><option value="RU">Русский</option><option value="KZ">Қазақша</option><option value="EN">English</option></select></label><label>Тип диалога<select name="channel"><option value="agent chat">Чат</option><option value="voice call">Расшифровка звонка</option></select></label></div>
+    <label for="upload-text">Текст диалога</label><textarea id="upload-text" name="text" rows="9" maxlength="100000" required aria-describedby="upload-text-help" placeholder="Клиент: Где посмотреть мой тариф?&#10;Оператор: Здравствуйте! Откройте раздел «Кабинет».&#10;Клиент: Спасибо, нашёл."></textarea>
+    <p id="upload-text-help" class="field-help">Выберите файл или вставьте текст. Каждую реплику начните с «Клиент:» или «Оператор:». Время необязательно: 00:15 Клиент: …</p>
+    <p id="upload-error" class="form-error" role="alert" hidden></p></div>
+    <div class="dialog-footer"><span class="quiet">Оценку ИИ можно запустить после добавления.</span><button type="button" class="button subtle" data-close>Отмена</button><button id="upload-submit" class="button primary">Добавить диалог</button></div>
+  </form></dialog>
 
   <dialog id="checklist-dialog" class="wide-dialog"><form id="checklist-form"><div class="dialog-heading"><div><h2>Правила оценки<span id="editor-version" hidden></span></h2></div><button type="button" class="icon-button" data-close aria-label="Закрыть">×</button></div><p class="dialog-subtitle">Изменения применятся ко всем диалогам.</p><div id="checklist-editor"></div><button type="button" class="button subtle" id="add-criterion">+ Добавить критерий</button><div class="dialog-footer"><span id="weight-total" class="quiet"></span><button type="button" class="button subtle" data-close>Отмена</button><button class="button primary">Сохранить изменения</button></div></form></dialog>
 

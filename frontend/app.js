@@ -10,7 +10,7 @@ const languageNames={RU:'Русский',KZ:'Қазақша',EN:'English'};
 function initialView() { const value=(window.location?.hash || '').slice(1);return ['appeals','analytics'].includes(value)?value:'conversations'; }
 function storedToken() { try { return sessionStorage.getItem('cqa-token') || ''; } catch { return ''; } }
 const state = {items:[], filtered:[], selected:null, detail:null, detailLoading:false, detailError:false, checklist:null, role:'supervisor', view:initialView(), appealItems:[], budget:{remaining:0}, busy:false, token:storedToken(), edit:[], audit:[], sequence:0};
-let toastTimer, searchTimer, loadSequence=0, filterSequence=0, viewSequence=0, audioSeekSequence=0, pendingAudioSeek;
+let toastTimer, searchTimer, loadSequence=0, filterSequence=0, viewSequence=0, audioSeekSequence=0, pendingAudioSeek, uploadSequence=0;
 
 async function api(path, options = {}) {
   let response;
@@ -111,7 +111,7 @@ function renderList() {
   // Server-side search includes full transcript; otherwise filter the loaded index locally.
   state.filtered = state.items.filter(r => (!language || r.language === language) && (!channel || r.channel === channel) && (!status || (status === 'appeals' ? r.pending_appeals > 0 : r.status === status)) && (!search || state.searchIds?.has(r.id)));
   $('#filter-count').textContent = `${state.filtered.length} из ${state.items.length}`;
-  $('#conversation-list').innerHTML = state.filtered.length ? state.filtered.map(r => `<button class="conversation-item ${r.id === state.selected ? 'selected' : ''}" data-id="${escapeHTML(r.id)}" aria-pressed="${r.id === state.selected}"><div class="item-top"><span class="item-channel" aria-label="${r.channel === 'voice call' ? 'Звонок' : 'Чат'}"><svg viewBox="0 0 24 24" aria-hidden="true">${r.channel === 'voice call' ? '<path d="M5 3h4l2 5-3 2a16 16 0 0 0 6 6l2-3 5 2v4a2 2 0 0 1-2 2C10 21 3 14 3 5a2 2 0 0 1 2-2Z"/>' : '<path d="M4 4h16v13H9l-5 4V4Z"/><path d="M8 8h8M8 12h5"/>'}</svg></span><span class="item-id">${escapeHTML(r.id)}</span><span class="item-score">${fmt(r.score,1)}</span></div><p class="item-preview">${escapeHTML(r.preview)}</p><div class="item-bottom"><span class="language-chip">${r.language}</span><span class="status-dot ${r.status.toLowerCase()}"></span><span>${labels[r.status]}</span>${r.pending_appeals ? `<span class="appeal-mini">↗ ${r.pending_appeals}</span>` : ''}</div></button>`).join('') : '<div class="empty">Диалоги не найдены</div>';
+  $('#conversation-list').innerHTML = state.filtered.length ? state.filtered.map(r => `<button class="conversation-item ${r.id === state.selected ? 'selected' : ''}" data-id="${escapeHTML(r.id)}" aria-pressed="${r.id === state.selected}"><div class="item-top"><span class="item-channel" aria-label="${r.channel === 'voice call' ? 'Звонок' : 'Чат'}"><svg viewBox="0 0 24 24" aria-hidden="true">${r.channel === 'voice call' ? '<path d="M5 3h4l2 5-3 2a16 16 0 0 0 6 6l2-3 5 2v4a2 2 0 0 1-2 2C10 21 3 14 3 5a2 2 0 0 1 2-2Z"/>' : '<path d="M4 4h16v13H9l-5 4V4Z"/><path d="M8 8h8M8 12h5"/>'}</svg></span><span class="item-id">${escapeHTML(r.title || r.id)}</span><span class="item-score">${fmt(r.score,1)}</span></div><p class="item-preview">${escapeHTML(r.preview)}</p><div class="item-bottom"><span class="language-chip">${r.language}</span><span class="status-dot ${r.status.toLowerCase()}"></span><span>${labels[r.status]}</span>${r.pending_appeals ? `<span class="appeal-mini">↗ ${r.pending_appeals}</span>` : ''}</div></button>`).join('') : '<div class="empty">Диалоги не найдены</div>';
 }
 async function selectConversation(id) {
   const sequence = ++state.sequence;
@@ -171,12 +171,12 @@ function renderDetail() {
     $('#conversation-title').textContent=state.detailLoading ? 'Загрузка…' : 'Выберите диалог';
     $('#conversation-meta').textContent='ПЕРЕПИСКА';$('#message-count').textContent='—';
     $('#evaluation-status').textContent='Нет оценки ИИ';$('#evaluation-status').className='badge';
-    const text=state.detailLoading ? 'Загрузка диалога…' : state.detailError ? 'Не удалось открыть диалог. Выберите его ещё раз.' : state.items.length ? 'По выбранным условиям диалогов нет.' : 'Нет диалогов. Загрузите их в настройках.';
+    const text=state.detailLoading ? 'Загрузка диалога…' : state.detailError ? 'Не удалось открыть диалог. Выберите его ещё раз.' : state.items.length ? 'По выбранным условиям диалогов нет.' : 'Нет диалогов. Нажмите «Загрузить диалог».';
     $('#transcript').innerHTML=`<div class="${state.detailLoading ? 'loading' : 'empty'}">${text}</div>`;
     $('#score-panel').innerHTML='';$('#criteria').innerHTML='';$('#audio-panel').hidden=true;
     return;
   }
-  $('#conversation-title').textContent = d.conversation_id;
+  $('#conversation-title').textContent = d.title || d.conversation_id;
   $('#conversation-meta').textContent = `${d.channel === 'voice call' ? 'ЗАПИСЬ ЗВОНКА' : 'ПЕРЕПИСКА'} / ${d.language}${d.transcript[0].timestamp.includes('T') ? ' / ВРЕМЯ UTC' : ''}`;
   $('#transcript').setAttribute('lang',{RU:'ru',KZ:'kk',EN:'en'}[d.language] || 'ru');
   $('#message-count').textContent = `${d.transcript.length} реплик`;
@@ -304,7 +304,7 @@ function download(name,data) {
 }
 async function openAudit() {
   const data = await api('/api/audit'); state.audit = data.events;
-  const actions = {dataset_imported:'Диалоги загружены',checklist_updated:'Правила обновлены',evaluation_started:'Начата оценка',evaluation_completed:'Оценка завершена',evaluation_failed:'Ошибка оценки',appeal_submitted:'Подана апелляция',appeal_resolved:'Принято решение по апелляции',test_result_archived:'Тестовая оценка перенесена в историю'};
+  const actions = {conversation_imported:'Добавлен диалог',dataset_imported:'Диалоги загружены',checklist_updated:'Правила обновлены',evaluation_started:'Начата оценка',evaluation_completed:'Оценка завершена',evaluation_failed:'Ошибка оценки',appeal_submitted:'Подана апелляция',appeal_resolved:'Принято решение по апелляции',test_result_archived:'Тестовая оценка перенесена в историю'};
   $('#audit-content').innerHTML = [...data.events].reverse().map(e => `<article class="audit-event"><time>${dateTime(e.timestamp)}<br>UTC+6</time><div><strong>${actions[e.action] || escapeHTML(e.action)}</strong><p>${escapeHTML(e.conversation_id || e.appeal?.conversation_id || '')}${e.appeal ? ` · ${escapeHTML(e.appeal.criterion_id)} · ${labels[e.appeal.status]}` : ''}</p>${e.appeal ? `<p>${escapeHTML(e.appeal.resolution_comment || e.appeal.comment)}</p>` : ''}${e.before && e.after ? `<p>Балл: ${fmt(e.before.final_score)} → ${fmt(e.after.final_score)}</p>` : e.version ? `<p>Правила обновлены</p>` : ""}</div></article>`).join('') || '<div class="empty">Журнал пока пуст</div>';
   $('#audit-dialog').showModal();
 }
@@ -387,8 +387,53 @@ function renderAnalytics() {
   const table=rows=>`<div class="table-scroll"><table class="data-table compact"><thead><tr><th scope="col">Группа</th><th scope="col" class="numeric">Диалогов</th><th scope="col" class="numeric">С оценкой ИИ</th><th scope="col" class="numeric">Средний балл</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escapeHTML(r.label)}</td><td class="numeric">${fmt(r.total,0)}</td><td class="numeric">${fmt(r.checked,0)}</td><td class="numeric">${fmt(r.average,2)}</td></tr>`).join('')}</tbody></table></div>`;
   $('#analytics-content').innerHTML=`<div class="insights-layout"><section class="insight-section"><h2>Оценка диалогов</h2><p class="quiet">Оценки ИИ с учётом решений по апелляциям</p><div class="coverage"><strong>${summary.checked}</strong><span>из ${summary.total} диалогов</span></div><div class="coverage-bar" role="img" aria-label="Оценено ИИ ${summary.checked} из ${summary.total}"><span style="width:${percent}%"></span></div><div class="coverage-legend"><span>С оценкой ИИ: ${summary.checked}</span><span>Без актуальной оценки: ${summary.total-summary.checked}</span></div><p class="quiet">Грубые нарушения в оценённых диалогах: ${summary.violations}</p></section><section class="insight-section"><h2>Распределение баллов</h2><p class="quiet">Только диалоги с рассчитанным баллом</p>${summary.buckets.map(b=>`<div class="distribution-row"><span>${b.label}</span><div class="distribution-track" role="img" aria-label="${b.label} баллов: ${b.count} диалогов"><span style="width:${b.count/maximum*100}%"></span></div><span class="distribution-number">${b.count}</span></div>`).join('')}</section><section class="insight-section full-width"><h2>По языкам</h2><p class="quiet">Средний балл по актуальным оценкам</p>${table(summary.languages)}</section><section class="insight-section full-width"><h2>По каналам</h2>${table(summary.channels)}</section></div>`;
 }
+function showUploadError(message) {
+  const node=$('#upload-error');node.textContent=message;node.hidden=false;
+  node.scrollIntoView({block:'nearest'});
+}
+function openUpload() {
+  ++uploadSequence;
+  $('#upload-form').reset();$('#upload-error').hidden=true;$('#upload-file-status').hidden=true;
+  $('#upload-submit').disabled=false;$('#upload-submit').textContent='Добавить диалог';
+  $('#upload-dialog').showModal();$('.upload-body').scrollTop=0;
+}
+async function readUploadFile(file) {
+  if(!file)return;
+  const sequence=++uploadSequence, form=$('#upload-form');
+  $('#upload-error').hidden=true;
+  if(file.size>5*1024*1024) {showUploadError('Размер файла должен быть не больше 5 МБ.');return;}
+  $('#upload-file-status').hidden=false;$('#upload-file-status').textContent='Читаем документ…';
+  $('#upload-submit').disabled=true;form.classList.add('busy');
+  try {
+    const result=await api(`/api/conversations/extract?filename=${encodeURIComponent(file.name)}`,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});
+    if(sequence!==uploadSequence)return;
+    form.elements.text.value=result.text;
+    form.elements.title.value=file.name.replace(/\.[^.]+$/,'').slice(0,120);
+    $('#upload-file-status').textContent='Текст загружен. Проверьте реплики перед добавлением.';
+  } catch(error) {
+    if(sequence!==uploadSequence)return;
+    showUploadError(error.message);$('#upload-file-status').hidden=true;
+  } finally {if(sequence===uploadSequence){form.classList.remove('busy');$('#upload-submit').disabled=false;}}
+}
+async function importUpload(form) {
+  $('#upload-error').hidden=true;
+  $('#upload-submit').disabled=true;$('#upload-submit').textContent='Добавляем…';form.classList.add('busy');
+  try {
+    const result=await post('/api/conversations/import',{title:form.elements.title.value.trim(),text:form.elements.text.value,
+      language:form.elements.language.value,channel:form.elements.channel.value});
+    clearTimeout(searchTimer);++filterSequence;state.searchIds=null;
+    for(const id of ['search','language','channel','status']) $(`#${id}`).value='';
+    state.selected=result.id;$('#upload-dialog').close();
+    await setWorkspaceView('conversations');await loadData();
+    toast('Диалог добавлен.');
+  } catch(error) {
+    if($('#upload-dialog').open){showUploadError(error.message);}
+    else toast('Диалог сохранён, но список не обновился. Нажмите «Обновить».',true);
+  }
+  finally {form.classList.remove('busy');$('#upload-submit').disabled=false;$('#upload-submit').textContent='Добавить диалог';}
+}
 const actions = {
-  'checklist':openChecklist,'audit':openAudit,
+  'checklist':openChecklist,'audit':openAudit,'upload':openUpload,
   'reload':() => loadData(),
   'show-list':() => $('.queue').scrollIntoView({behavior:'smooth'}),
   'toggle-list':()=>toggleConversationList(),
@@ -508,9 +553,12 @@ $('#batch-form').addEventListener('submit', event => {
     } finally { state.busy=false; await loadData(); }
   },form);
 });
+$('#upload-file').addEventListener('change',event=>void readUploadFile(event.target.files[0]));
+$('#upload-form').addEventListener('submit',event=>{event.preventDefault();if(!$('#upload-submit').disabled)void importUpload(event.currentTarget);});
+$('#upload-dialog').addEventListener('close',()=>{++uploadSequence;$('#upload-form').classList.remove('busy');});
 $('#export-audit').addEventListener('click', () => download('cqa-audit.json',state.audit));
 guarded(async () => {
   await loadData();
   if(state.view==='conversations') await setWorkspaceView('conversations',{updateHistory:false});
-  if (!state.items.length) toast('Нет диалогов. Загрузите их в настройках.',true);
+  if (!state.items.length) toast('Нет диалогов. Нажмите «Загрузить диалог».',true);
 });

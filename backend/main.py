@@ -23,6 +23,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal
 
 from . import ai_evaluator
+from .conversation_import import MAX_FILE_BYTES, extract_document, parse_transcript
+from starlette.concurrency import run_in_threadpool
 from .dataset import unpack_dataset
 from .scoring_engine import Criterion, ChecklistUpdate, default_checklist, score_evaluation, validate_value
 
@@ -178,7 +180,12 @@ class Store:
         with self.lock:
             if self.active:
                 raise HTTPException(409, "Дождитесь завершения оценки")
-            incoming = {r["conversation_id"] for r in records}
+            uploaded = {cid: self.data["records"][cid] for cid in self.data.get("uploaded_ids", []) if cid in self.data["records"]}
+            if any(r["conversation_id"] in uploaded for r in records):
+                raise ValueError("Номер диалога группы совпал с загруженным диалогом")
+            incoming = {r["conversation_id"] for r in records} | uploaded.keys()
+            if len(incoming) > 5000:
+                raise ValueError("Всего должно быть не больше 5000 диалогов")
             for removed in set(self.data["records"]) - incoming:
                 self.supersede_appeals(removed)
             for r in records:
@@ -187,7 +194,7 @@ class Store:
                 if previous and digest(previous) != digest(r):
                     self.supersede_appeals(cid)
             # Retain history and archived appeals across group changes.
-            self.data["records"] = {r["conversation_id"]: copy.deepcopy(r) for r in records}
+            self.data["records"] = {**uploaded, **{r["conversation_id"]: copy.deepcopy(r) for r in records}}
             self.data["dataset_group_id"] = group
             self.event("dataset_imported", "supervisor", records=len(records), group=group)
             self.save()
@@ -226,6 +233,14 @@ class ResolveAppeal(BaseModel):
     new_score: float | None = Field(default=None, strict=True)
     is_na: bool = Field(default=False, strict=True)
     resolution_comment: str = Field(min_length=5, max_length=3000)
+
+
+class ImportConversation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(default="Загруженный диалог", min_length=1, max_length=120)
+    text: str = Field(min_length=1, max_length=100_000)
+    language: Literal["RU", "KZ", "EN"]
+    channel: Literal["agent chat", "voice call"] = "agent chat"
 
 
 class BatchRequest(BaseModel):
@@ -277,17 +292,54 @@ def create_app(store_path=None, dataset_file=None):
                 current_status = store.status(cid)
                 if language and r["language"] != language or channel and r["channel"] != channel or status and current_status != status:
                     continue
-                if search and search.casefold() not in (cid + " "+ " ".join(m["text"] for m in r["transcript"])).casefold():
+                if search and search.casefold() not in (cid + " " + r.get("title", "") + " " + " ".join(m["text"] for m in r["transcript"])).casefold():
                     continue
                 e = store.data["evaluations"].get(cid)
                 first = next((m["text"] for m in r["transcript"] if m["speaker"] == "client"), "Диалог")
-                items.append({"id": cid, "language": r["language"], "channel": r["channel"], "preview": first,
+                items.append({"id": cid, "title": r.get("title"), "language": r["language"], "channel": r["channel"], "preview": first,
                               "status": current_status, "score": e["final_score"] if e and current_status == "Evaluated" else None,
                               "has_gross_violation": bool(e and e["has_gross_violation"]),
                               "pending_appeals": sum(a["conversation_id"] == cid and a["status"] == "PENDING" for a in store.data["appeals"])})
             return {"items": items, "total": len(store.data["records"]), "group": store.data["dataset_group_id"],
                     "evaluated": sum(store.status(cid) == "Evaluated" for cid in store.data["records"]),
                     "budget": store.budget()}
+
+    @app.post("/api/conversations/extract")
+    async def extract(request: Request, filename: str = Query(min_length=1, max_length=240)):
+        role(request, "supervisor")
+        content = bytearray()
+        async for chunk in request.stream():
+            content.extend(chunk)
+            if len(content) > MAX_FILE_BYTES:
+                raise HTTPException(413, "Размер файла должен быть не больше 5 МБ.")
+        try:
+            text = await run_in_threadpool(extract_document, filename, bytes(content))
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        return {"text": text}
+
+    @app.post("/api/conversations/import", status_code=201)
+    def import_conversation(body: ImportConversation, request: Request):
+        role(request, "supervisor")
+        try:
+            transcript = parse_transcript(body.text)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        title = body.title.strip()
+        if not title:
+            raise HTTPException(422, "Укажите название диалога.")
+        cid = "upload-" + uuid.uuid4().hex
+        record = {"conversation_id": cid, "title": title, "language": body.language,
+                  "channel": body.channel, "audio_url": None, "transcript": transcript}
+        with store.lock:
+            if len(store.data["records"]) >= 5000:
+                raise HTTPException(409, "Достигнут лимит: 5000 диалогов.")
+            store.data["records"] = {cid: record, **store.data["records"]}
+            store.data.setdefault("uploaded_ids", []).append(cid)
+            store.event("conversation_imported", "supervisor", conversation_id=cid, title=title,
+                        messages=len(transcript))
+            store.save()
+        return {"id": cid, "messages": len(transcript)}
 
     @app.get("/api/conversations/{cid}")
     def conversation(cid: str):
