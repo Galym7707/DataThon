@@ -147,19 +147,21 @@ def appeal(client, evaluation, cid="01"):
     return response.json()
 
 
-def test_cache_and_persistent_budget(client):
+def test_unlimited_evaluations_keep_cache_and_persistent_usage(client):
     evaluated(client)
     assert client.post('/api/evaluate/test-1',headers=SUPERVISOR).json()["cached"]
     assert client.get('/api/health').json()["budget"]["attempts"] == 1
-    for _ in range(2):
+    for _ in range(4):
         assert client.post('/api/evaluate/test-1?force=true',headers=SUPERVISOR).status_code == 200
-    assert client.post('/api/evaluate/test-2',headers=SUPERVISOR).status_code == 429
+    assert client.post('/api/evaluate/test-2',headers=SUPERVISOR).status_code == 200
     s = client.app.state.store
     from backend.main import Store
-    assert Store(s.path).budget()["remaining"] == 0
+    persisted = Store(s.path).budget()
+    assert persisted["attempts"] == 6
+    assert persisted["limit"] is None and persisted["remaining"] is None
 
 
-def test_failed_request_consumes_ceiling_without_fabricated_score(client,monkeypatch):
+def test_failed_request_records_usage_without_fabricated_score(client,monkeypatch):
     def fail(*args):
         raise RuntimeError("Test provider failure")
     monkeypatch.setattr("backend.ai_evaluator.evaluate",fail)
@@ -216,7 +218,7 @@ def test_weight_change_no_ai_and_rule_change_stale(client):
     assert detail['status'] == 'Stale'
 
 
-def test_roles_token_search_and_batch_cap(client,monkeypatch):
+def test_roles_token_search_and_batch_without_call_ceiling(client,monkeypatch):
     assert len(client.get('/api/conversations?search=Здравствуйте').json()['items']) == 2
     assert client.get('/api/conversations?language=EN').json()['items'] == []
     assert client.post('/api/evaluate/test-1',headers=OPERATOR).status_code == 403
@@ -225,7 +227,10 @@ def test_roles_token_search_and_batch_cap(client,monkeypatch):
     headers={**SUPERVISOR,'X-Supervisor-Token':'qa-test-token'}
     assert client.post('/api/evaluate/test-1',headers=headers).status_code == 200
     monkeypatch.setenv('OPENAI_MAX_CALLS','1')
-    assert client.post('/api/evaluate-batch',headers=headers,json={'conversation_ids':['test-2']}).status_code == 429
+    response=client.post('/api/evaluate-batch',headers=headers,json={'conversation_ids':['test-2']})
+    assert response.status_code == 200
+    assert len(response.json()['completed']) == 1
+    assert response.json()['budget']['remaining'] is None
 
 
 def test_checklist_add_remove_and_all_na(client):

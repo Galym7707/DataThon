@@ -211,8 +211,7 @@ class Store:
 
     def budget(self):
         b = self.data["budget"]
-        limit = max(0, int(os.getenv("OPENAI_MAX_CALLS", "3")))
-        return {**b, "limit": limit, "remaining": max(0, limit - b["attempts"]),
+        return {**b, "limit": None, "remaining": None,
                 "configured": bool(os.getenv("OPENAI_API_KEY")), "model": os.getenv("OPENAI_MODEL", "gpt-4o")}
 
 
@@ -246,7 +245,7 @@ class ImportConversation(BaseModel):
 
 class BatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    conversation_ids: list[str] = Field(min_length=1, max_length=65)
+    conversation_ids: list[str] = Field(min_length=1, max_length=5000)
 
 
 def create_app(store_path=None, dataset_file=None):
@@ -400,10 +399,8 @@ def create_app(store_path=None, dataset_file=None):
                 raise HTTPException(409, "Сначала разрешите ожидающие апелляции")
             if not os.getenv("OPENAI_API_KEY"):
                 raise HTTPException(503, "OPENAI_API_KEY не настроен")
-            if store.budget()["remaining"] == 0:
-                raise HTTPException(429, "Лимит вызовов исчерпан. Изменение OPENAI_MAX_CALLS в .env требует осознанного решения и перезапуска сервера")
             config = copy.deepcopy(store.data["checklist"])
-            # Reserve durably before network access; failed attempts also consume the ceiling.
+            # Record the attempt durably before network access, including failed calls.
             store.data["budget"]["attempts"] += 1
             store.event("evaluation_started", "supervisor", conversation_id=cid, checklist_version=config["version"])
             store.save()
@@ -454,9 +451,6 @@ def create_app(store_path=None, dataset_file=None):
                 get_record(cid)
                 if store.status(cid) != "Evaluated" and any(a["conversation_id"] == cid and a["status"] == "PENDING" for a in store.data["appeals"]):
                     raise HTTPException(409, "Сначала рассмотрите ожидающие апелляции")
-            need = sum(store.status(cid) != "Evaluated" for cid in ids)
-            if need > store.budget()["remaining"]:
-                raise HTTPException(429, "Пакет превышает оставшийся лимит. Выберите меньше диалогов")
         completed = []
         for cid in ids:
             try:

@@ -7,11 +7,11 @@
   <meta name="description" content="Freedom CQA — проверка качества диалогов и работа с апелляциями.">
   <title>Freedom CQA · Качество диалогов</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%2310b981'/%3E%3Cpath d='M9 8h16l-3 5H14v4h7l-3 5h-4v5H9z' fill='%230f172a'/%3E%3C/svg%3E">
-  <script src="/static/theme.js?v=19"></script>
-  <link rel="stylesheet" href="/static/styles.css?v=19">
-  <link rel="stylesheet" href="/static/themes.css?v=19">
-  <link rel="stylesheet" href="/static/workspace.css?v=19">
-  <script src="/static/app.js?v=19" defer></script>
+  <script src="/static/theme.js?v=20"></script>
+  <link rel="stylesheet" href="/static/styles.css?v=20">
+  <link rel="stylesheet" href="/static/themes.css?v=20">
+  <link rel="stylesheet" href="/static/workspace.css?v=20">
+  <script src="/static/app.js?v=20" defer></script>
 </head>
 <body>
   <a class="skip" href="#transcript">К переписке</a>
@@ -41,7 +41,7 @@
       </section>
 
       <section id="conversations-view" aria-label="Работа с диалогами">
-      <div class="workspace-bar"><div class="workspace-tabs"><button class="button subtle list-toggle" data-action="toggle-list" aria-expanded="false">Список диалогов</button><span class="tab active">Все диалоги <span id="tab-count">0</span></span><span id="checklist-version" hidden></span></div><div class="workspace-actions"><button class="button primary supervisor-only upload-trigger" data-action="upload">Загрузить диалог</button><span id="budget" class="budget">Осталось проверок: —</span><button class="button subtle supervisor-only" data-action="batch">Проверить несколько <span aria-hidden="true">↗</span></button><button class="button subtle supervisor-only" data-action="checklist">Правила оценки</button></div></div>
+      <div class="workspace-bar"><div class="workspace-tabs"><button class="button subtle list-toggle" data-action="toggle-list" aria-expanded="false">Список диалогов</button><span class="tab active">Все диалоги <span id="tab-count">0</span></span><span id="checklist-version" hidden></span></div><div class="workspace-actions"><button class="button primary supervisor-only upload-trigger" data-action="upload">Загрузить диалог</button><span id="budget" class="budget" hidden></span><button class="button subtle supervisor-only" data-action="batch">Проверить несколько <span aria-hidden="true">↗</span></button><button class="button subtle supervisor-only" data-action="checklist">Правила оценки</button></div></div>
 
       <button class="queue-backdrop" data-action="toggle-list" aria-label="Закрыть список" hidden></button>
       <div class="workbench">
@@ -84,7 +84,7 @@
 
   <dialog id="settings-dialog"><form id="settings-form"><div class="dialog-heading"><h2>Настройки</h2><button type="button" class="icon-button" data-close aria-label="Закрыть">×</button></div><p class="dialog-subtitle">Пароль нужен, если доступ ограничен.</p><label>Пароль руководителя<input name="token" type="password" autocomplete="off" placeholder="Введите пароль"></label><label>Группа диалогов<input name="group" pattern="[A-Za-z0-9_-]{1,40}" value="DEV" required></label><button type="button" class="button subtle supervisor-only" id="refresh-dataset">Загрузить диалоги</button><p class="quiet" id="settings-budget"></p><div class="dialog-footer"><button class="button primary">Сохранить</button></div></form></dialog>
 
-  <dialog id="batch-dialog"><form id="batch-form"><div class="dialog-heading"><h2>Проверить несколько</h2><button type="button" class="icon-button" data-close aria-label="Закрыть">×</button></div><p class="dialog-subtitle" id="batch-description"></p><label>Количество диалогов<input name="count" type="number" min="1" max="3" value="1" required></label><p class="quiet">Будут проверены первые диалоги без оценки из текущего списка.</p><div class="dialog-footer"><button type="button" class="button subtle" data-close>Отмена</button><button class="button primary">Запустить оценку</button></div></form></dialog>
+  <dialog id="batch-dialog"><form id="batch-form"><div class="dialog-heading"><h2>Проверить несколько</h2><button type="button" class="icon-button" data-close aria-label="Закрыть">×</button></div><p class="dialog-subtitle" id="batch-description"></p><label>Количество диалогов<input name="count" type="number" min="1" max="5000" value="1" required></label><p class="quiet">Будут проверены первые диалоги без оценки из текущего списка.</p><div class="dialog-footer"><button type="button" class="button subtle" data-close>Отмена</button><button class="button primary">Запустить оценку</button></div></form></dialog>
 
   <dialog id="audit-dialog" class="wide-dialog"><div class="dialog-heading"><div><h2>Журнал действий</h2></div><button type="button" class="icon-button" data-close aria-label="Закрыть">×</button></div><div id="audit-content"></div><div class="dialog-footer"><button class="button subtle" id="export-audit">Скачать журнал</button><button class="button primary" data-close>Закрыть</button></div></dialog>
   <div id="toast" role="status" aria-live="polite" hidden></div>

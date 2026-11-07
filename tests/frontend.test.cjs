@@ -212,3 +212,20 @@ test('gross-error summary puts exact reason and evidence before all criteria',()
   assert.match(doc.querySelector('#violations').innerHTML,/data-proof="1"/);
   r.evaluation.criteria[0].value=0;h.renderDetail();assert.equal(doc.querySelector('#violations').hidden,true);
 });
+
+
+test('exhausted historical counters no longer disable manual evaluation',()=>{
+  const {h,doc}=setup();h.state.detail=record();
+  h.state.budget={configured:true,attempts:100,limit:3,remaining:0};h.renderDetail();
+  const html=doc.querySelector('#score-panel').innerHTML;
+  const button=html.match(/<button[^>]*id="evaluate-button"[^>]*>/)[0];
+  assert.ok(!button.includes('disabled'));
+  assert.ok(!html.includes('Лимит проверок исчерпан'));
+  assert.equal(doc.querySelector('#budget').hidden,true);
+});
+test('unconfigured model still explains why evaluation is unavailable',()=>{
+  const {h,doc}=setup();h.state.detail=record();h.state.budget={configured:false};h.renderDetail();
+  const html=doc.querySelector('#score-panel').innerHTML;
+  assert.match(html.match(/<button[^>]*id="evaluate-button"[^>]*>/)[0],/disabled/);
+  assert.match(html,/Оценка недоступна/);
+});

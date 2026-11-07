@@ -9,7 +9,7 @@ const labels = {Pending:'Нет оценки ИИ', Evaluated:'Есть оцен
 const languageNames={RU:'Русский',KZ:'Қазақша',EN:'English'};
 function initialView() { const value=(window.location?.hash || '').slice(1);return ['appeals','analytics'].includes(value)?value:'conversations'; }
 function storedToken() { try { return sessionStorage.getItem('cqa-token') || ''; } catch { return ''; } }
-const state = {items:[], filtered:[], selected:null, detail:null, detailLoading:false, detailError:false, checklist:null, role:'supervisor', view:initialView(), appealItems:[], budget:{remaining:0}, busy:false, token:storedToken(), edit:[], audit:[], sequence:0};
+const state = {items:[], filtered:[], selected:null, detail:null, detailLoading:false, detailError:false, checklist:null, role:'supervisor', view:initialView(), appealItems:[], budget:{configured:false}, busy:false, token:storedToken(), edit:[], audit:[], sequence:0};
 let toastTimer, searchTimer, loadSequence=0, filterSequence=0, viewSequence=0, audioSeekSequence=0, pendingAudioSeek, uploadSequence=0, uploadConversations=[], uploadIndex=0;
 
 async function api(path, options = {}) {
@@ -19,7 +19,7 @@ async function api(path, options = {}) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const validation=Array.isArray(data.detail) ? [...new Set(data.detail.map(x=>/[А-Яа-яЁё]/.test(x.msg || '') ? x.msg.replace(/^Value error,\s*/,'') : 'Проверьте заполненные поля.'))].join(' ') : '';
-    const message = response.status === 403 ? 'Нет доступа. Проверьте роль и пароль в настройках.' : response.status === 429 ? 'Лимит проверок исчерпан.' : response.status === 503 ? (typeof data.detail === 'string' && data.detail.startsWith('Не удалось сохранить') ? data.detail : 'Действие временно недоступно. Попробуйте позже.') : response.status >= 500 ? 'Не удалось выполнить действие. Попробуйте позже.' : typeof data.detail === 'string' ? data.detail : validation || 'Не удалось выполнить действие.';
+    const message = response.status === 403 ? 'Нет доступа. Проверьте роль и пароль в настройках.' : response.status === 429 ? 'Слишком много запросов. Попробуйте позже.' : response.status === 503 ? (typeof data.detail === 'string' && data.detail.startsWith('Не удалось сохранить') ? data.detail : 'Действие временно недоступно. Попробуйте позже.') : response.status >= 500 ? 'Не удалось выполнить действие. Попробуйте позже.' : typeof data.detail === 'string' ? data.detail : validation || 'Не удалось выполнить действие.';
     throw new Error(message);
   }
   return data;
@@ -52,9 +52,9 @@ function applyRole() {
 }
 function updateBudget(budget) {
   state.budget = budget;
-  $('#budget').textContent = `Осталось проверок: ${budget.remaining}`;
-  $('#settings-budget').textContent = `Осталось проверок: ${budget.remaining} из ${budget.limit}.`;
-  $$('[data-action="batch"]').forEach(button => button.disabled=state.busy || !budget.configured || budget.remaining < 1);
+  $('#budget').hidden=true;
+  $('#settings-budget').textContent=budget.configured?'Оценка ИИ настроена.':'Оценка ИИ не настроена.';
+  $$('[data-action="batch"]').forEach(button => button.disabled=state.busy || !budget.configured);
 }
 async function loadData(keepSelection = true) {
   const sequence=++loadSequence;
@@ -195,8 +195,8 @@ function renderDetail() {
   $('#criteria-count').textContent = String(state.checklist.criteria.length).padStart(2,'0');
   const sourceNote=e ? (e.criteria.some(r=>r.overridden_at || r.override_comment) ? 'Оценка ИИ с правками руководителя' : 'Оценка ИИ') : '';
   const percent = e?.final_score ?? 0;
-  const eligible = !state.busy && d.status !== 'Evaluating' && !d.appeals.some(a=>a.status === 'PENDING') && state.budget.configured && state.budget.remaining > 0;
-  const scoreNote=d.appeals.some(a=>a.status === 'PENDING') ? 'Сначала рассмотрите апелляции.' : e && e.final_score == null ? 'Нет применимых критериев с баллами.' : !state.budget.configured ? 'Оценка недоступна. Обратитесь к администратору.' : state.budget.remaining === 0 ? 'Лимит проверок исчерпан.' : e ? 'Проверьте обоснования и цитаты.' : '';
+  const eligible = !state.busy && d.status !== 'Evaluating' && !d.appeals.some(a=>a.status === 'PENDING') && state.budget.configured;
+  const scoreNote=d.appeals.some(a=>a.status === 'PENDING') ? 'Сначала рассмотрите апелляции.' : e && e.final_score == null ? 'Нет применимых критериев с баллами.' : !state.budget.configured ? 'Оценка недоступна. Обратитесь к администратору.' : e ? 'Проверьте обоснования и цитаты.' : '';
   $('#score-panel').innerHTML = `${d.status === 'Stale' ? '<div class="warning">Эту оценку нужно обновить.</div>' : ''}<div class="score-main"><div class="score-ring" style="--percent:${Math.min(100,Math.max(0,percent))}"><div class="score-value"><strong>${fmt(e?.final_score)}</strong><small>из 100 баллов</small></div></div><div class="score-info">${e ? current ? 'Итоговая оценка' : 'Предыдущая оценка' : 'Готов к проверке'}${e ? `<p class="score-source">${sourceNote}</p>` : ''}<p>${e ? `${e.criteria.length} критериев` : `${d.language} · ${d.channel === 'voice call' ? 'голосовой звонок' : 'чат с оператором'}`}</p><p>${e ? `Не учитывается: ${e.criteria.filter(r => r.is_na).length}` : `${state.checklist.criteria.length} критериев`}</p></div></div>${state.role === 'supervisor' ? `<button class="button primary" id="evaluate-button" ${!eligible ? 'disabled' : ''}>${state.busy ? 'Оценка выполняется…' : current ? 'Оценить повторно' : 'Оценить диалог'} <span aria-hidden="true">↗</span></button>` : ''}<p class="score-note">${scoreNote}</p>`;
   if (!e) {
     $('#criteria').innerHTML = state.checklist.criteria.map(c => `<div class="criterion"><div class="criterion-top"><span class="criterion-number">${escapeHTML(c.id)}</span><span class="criterion-name">${escapeHTML(c.name)}</span><span class="criterion-answer na">—</span></div><div class="criterion-math"><span>${c.type === 'flag' ? 'Без баллов' : `Вес ${fmt(c.weight)}`}</span><span>${c.allow_na ? 'Можно не учитывать' : 'Всегда применим'}</span></div></div>`).join('');
@@ -480,8 +480,9 @@ const actions = {
   'settings':() => { $('#settings-form').elements.token.value=state.token; $('#settings-form').elements.group.value=$('#group-badge').textContent; $('#settings-dialog').showModal(); },
   'batch':() => {
     if(state.busy) return toast('Дождитесь завершения проверки.',true);
-    const count = Math.min(state.filtered.filter(r => r.status !== 'Evaluated').length,state.budget.remaining);
-    if (count <= 0 || !state.budget.configured) return toast('Нет доступных проверок или диалогов без оценки.',true);
+    const count = state.filtered.filter(r => r.status !== 'Evaluated').length;
+    if (!state.budget.configured) return toast('Оценка ИИ не настроена.',true);
+    if (count <= 0) return toast('Нет диалогов без актуальной оценки.',true);
     $('#batch-form').elements.count.max=count; $('#batch-form').elements.count.value=1;
     $('#batch-description').textContent=`Можно проверить до ${count} диалогов.`;
     $('#batch-dialog').showModal();
