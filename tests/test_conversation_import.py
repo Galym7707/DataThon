@@ -142,3 +142,63 @@ def test_import_accepts_evaluation_with_explicit_reply_references(importer, monk
     assert response.status_code == 200
     assert response.json()["evaluation"]["criteria"][0]["proof_timestamp"] == "Реплика 1"
     assert client.get(f"/api/conversations/{cid}").json()["status"] == "Evaluated"
+
+
+JSON_MESSAGES = [{"speaker": "client", "text": "Вопрос\nОператор: это цитата клиента", "timestamp": "2026-11-07T10:00:00Z"},
+                 {"speaker": "operator", "text": "Ответ", "timestamp": "2026-11-07T10:00:07Z"}]
+
+
+@pytest.mark.parametrize("shape", ["single", "list", "records", "organizer", "messages", "text"])
+def test_json_file_shapes_and_evidence_preservation(shape):
+    from backend.conversation_import import extract_upload
+    record = {"conversation_id": "json-test", "language": "KZ", "transcript": JSON_MESSAGES,
+              "evaluation": {"final_score": 100}, "audio_url": "https://example.com/ignored.mp3"}
+    data = {"single": record, "list": [record], "records": {"records": [record]},
+            "organizer": {"isSuccess": True, "data": {"records": [record]}},
+            "messages": [{"role": "client", "content": "Question"}, {"role": "agent", "content": "Answer"}],
+            "text": {"text": TEXT}}[shape]
+    result = extract_upload("dialog.JSON", json.dumps(data, ensure_ascii=False).encode("utf-8-sig"))["conversations"]
+    assert len(result) == 1 and "evaluation" not in result[0] and "audio_url" not in result[0]
+    if shape in ("single", "list", "records", "organizer"):
+        assert result[0]["transcript"] == JSON_MESSAGES
+        assert result[0]["language"] == "KZ"
+    else:
+        assert result[0]["transcript"][0]["timestamp"] == "Реплика 1"
+
+
+@pytest.mark.parametrize("content", [b"{bad json", b"[]", b"42", b'{"isSuccess":false,"data":{"records":[]}}',
+    b'{"transcript":[{"speaker":"assistant","text":"Hello"},{"speaker":"client","text":"Hi"}]}',
+    b'{"transcript":[{"speaker":"operator","text":42},{"speaker":"client","text":"Hi"}]}'])
+def test_invalid_json_is_rejected_without_guessing_roles(content):
+    from backend.conversation_import import extract_json
+    with pytest.raises(ValueError): extract_json(content)
+
+
+def test_structured_json_import_retains_exact_replies_and_discards_scores(importer, monkeypatch):
+    client, _ = importer
+    monkeypatch.setattr("backend.ai_evaluator.evaluate", lambda *args: pytest.fail("No paid evaluation on import"))
+    before = client.get("/api/health").json()["budget"]
+    response = client.post("/api/conversations/extract?filename=dialog.json", headers=SUPERVISOR,
+        content=json.dumps({"title": "JSON диалог", "language": "EN", "transcript": JSON_MESSAGES,
+                            "evaluation": {"final_score": 100}}).encode())
+    assert response.status_code == 200
+    item = response.json()["conversations"][0]
+    result = client.post("/api/conversations/import", headers=SUPERVISOR,
+        json={k:item[k] for k in ("title", "language", "channel", "transcript")})
+    assert result.status_code == 201
+    stored = client.get('/api/conversations/'+result.json()["id"]).json()
+    assert stored["transcript"] == JSON_MESSAGES
+    assert stored["evaluation"] is None and stored["audio_url"] is None
+    assert client.get("/api/health").json()["budget"] == before
+
+
+def test_json_message_validation_and_unambiguous_import_request(importer):
+    from backend.conversation_import import normalize_messages
+    client, _ = importer
+    bad = [{"speaker": "client", "text": "Question", "timestamp": "00:99"}, {"speaker": "operator", "text": "Answer"}]
+    with pytest.raises(ValueError): normalize_messages(bad)
+    assert client.post("/api/conversations/import", headers=SUPERVISOR,
+        json={"language": "RU", "text": TEXT, "transcript": JSON_MESSAGES}).status_code == 422
+    assert client.post("/api/conversations/import", headers=SUPERVISOR,
+        json={"language": "RU", "transcript": bad}).status_code == 422
+    assert client.get("/api/health").json()["records"] == 1

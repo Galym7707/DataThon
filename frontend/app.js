@@ -10,7 +10,7 @@ const languageNames={RU:'Русский',KZ:'Қазақша',EN:'English'};
 function initialView() { const value=(window.location?.hash || '').slice(1);return ['appeals','analytics'].includes(value)?value:'conversations'; }
 function storedToken() { try { return sessionStorage.getItem('cqa-token') || ''; } catch { return ''; } }
 const state = {items:[], filtered:[], selected:null, detail:null, detailLoading:false, detailError:false, checklist:null, role:'supervisor', view:initialView(), appealItems:[], budget:{remaining:0}, busy:false, token:storedToken(), edit:[], audit:[], sequence:0};
-let toastTimer, searchTimer, loadSequence=0, filterSequence=0, viewSequence=0, audioSeekSequence=0, pendingAudioSeek, uploadSequence=0;
+let toastTimer, searchTimer, loadSequence=0, filterSequence=0, viewSequence=0, audioSeekSequence=0, pendingAudioSeek, uploadSequence=0, uploadConversations=[], uploadIndex=0;
 
 async function api(path, options = {}) {
   let response;
@@ -391,8 +391,20 @@ function showUploadError(message) {
   const node=$('#upload-error');node.textContent=message;node.hidden=false;
   node.scrollIntoView({block:'nearest'});
 }
+function rememberJsonConversation() {
+  const item=uploadConversations[uploadIndex];if(!item)return;
+  const form=$('#upload-form');
+  item.title=form.elements.title.value;item.language=form.elements.language.value;item.channel=form.elements.channel.value;
+  if(item.text!==form.elements.text.value){item.text=form.elements.text.value;delete item.transcript;}
+}
+function showJsonConversation(index) {
+  uploadIndex=index;
+  const item=uploadConversations[index],form=$('#upload-form');if(!item)return;
+  form.elements.title.value=item.title;form.elements.text.value=item.text;item.text=form.elements.text.value;
+  form.elements.language.value=item.language || 'RU';form.elements.channel.value=item.channel;
+}
 function openUpload() {
-  ++uploadSequence;
+  ++uploadSequence;uploadConversations=[];uploadIndex=0;$('#upload-json-choice').hidden=true;
   $('#upload-form').reset();$('#upload-error').hidden=true;$('#upload-file-status').hidden=true;
   $('#upload-submit').disabled=false;$('#upload-submit').textContent='Добавить диалог';
   $('#upload-dialog').showModal();$('.upload-body').scrollTop=0;
@@ -407,9 +419,17 @@ async function readUploadFile(file) {
   try {
     const result=await api(`/api/conversations/extract?filename=${encodeURIComponent(file.name)}`,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});
     if(sequence!==uploadSequence)return;
-    form.elements.text.value=result.text;
-    form.elements.title.value=file.name.replace(/\.[^.]+$/,'').slice(0,120);
-    $('#upload-file-status').textContent='Текст загружен. Проверьте реплики перед добавлением.';
+    uploadConversations=result.conversations || [];uploadIndex=0;
+    $('#upload-json-choice').hidden=uploadConversations.length<2;
+    if(uploadConversations.length) {
+      $('#upload-json-select').innerHTML=uploadConversations.map((item,i)=>`<option value="${i}">${escapeHTML(item.title)}</option>`).join('');
+      showJsonConversation(0);
+      $('#upload-file-status').textContent=uploadConversations.length>1 ? `В файле диалогов: ${uploadConversations.length}. Выберите нужный для добавления.` : 'Диалог загружен. Проверьте реплики перед добавлением.';
+    } else {
+      form.elements.text.value=result.text;
+      form.elements.title.value=file.name.replace(/\.[^.]+$/,'').slice(0,120);
+      $('#upload-file-status').textContent='Текст загружен. Проверьте реплики перед добавлением.';
+    }
   } catch(error) {
     if(sequence!==uploadSequence)return;
     showUploadError(error.message);$('#upload-file-status').hidden=true;
@@ -419,7 +439,10 @@ async function importUpload(form) {
   $('#upload-error').hidden=true;
   $('#upload-submit').disabled=true;$('#upload-submit').textContent='Добавляем…';form.classList.add('busy');
   try {
-    const result=await post('/api/conversations/import',{title:form.elements.title.value.trim(),text:form.elements.text.value,
+    rememberJsonConversation();
+    const item=uploadConversations[uploadIndex];
+    const result=await post('/api/conversations/import',{title:form.elements.title.value.trim(),
+      ...(item?.transcript?{transcript:item.transcript}:{text:form.elements.text.value}),
       language:form.elements.language.value,channel:form.elements.channel.value});
     clearTimeout(searchTimer);++filterSequence;state.searchIds=null;
     for(const id of ['search','language','channel','status']) $(`#${id}`).value='';
@@ -553,6 +576,7 @@ $('#batch-form').addEventListener('submit', event => {
     } finally { state.busy=false; await loadData(); }
   },form);
 });
+$('#upload-json-select').addEventListener('change',event=>{rememberJsonConversation();showJsonConversation(Number(event.target.value));});
 $('#upload-file').addEventListener('change',event=>void readUploadFile(event.target.files[0]));
 $('#upload-form').addEventListener('submit',event=>{event.preventDefault();if(!$('#upload-submit').disabled)void importUpload(event.currentTarget);});
 $('#upload-dialog').addEventListener('close',()=>{++uploadSequence;$('#upload-form').classList.remove('busy');});

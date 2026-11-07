@@ -23,7 +23,7 @@ function setup(fetcher=async()=>({}), storage={getItem(){return '';}}) {
     fetch:async url=>({ok:true,json:async()=>fetcher(url)}),setTimeout(){return 1;},clearTimeout(){},
     matchMedia(){return {matches:true};},console});
   const source=fs.readFileSync(path.join(__dirname,'../frontend/app.js'),'utf8').split("document.addEventListener('click'")[0];
-  vm.runInContext(source+'\nglobalThis.hooks={api,state,offsetSeconds,selectConversation,filterConversations,loadData,seekProof,resetAudio,openAppeal,collectEditor,renderDetail,analyticsSummary,evaluationDeductions,setWorkspaceView};',context);
+  vm.runInContext(source+'\nglobalThis.hooks={api,state,offsetSeconds,selectConversation,filterConversations,loadData,seekProof,resetAudio,openAppeal,collectEditor,renderDetail,analyticsSummary,evaluationDeductions,setWorkspaceView,readUploadFile,showJsonConversation,rememberJsonConversation,openUpload};',context);
   const h=context.hooks;
   h.state.checklist={version:1,criteria:[]};h.state.budget={remaining:0,limit:3,configured:true};
   return {h,doc,nodes,context};
@@ -161,4 +161,30 @@ test('deduction summary excludes N/A, full points, zero weights and flags',()=>{
 test('operator navigation cannot open supervisor analytics',async()=>{
   const {h,doc}=setup();h.state.role='operator';await h.setWorkspaceView('analytics');
   assert.equal(h.state.view,'conversations');assert.equal(doc.querySelector('#page-title').textContent,'Диалоги');
+});
+
+
+function uploadForm(doc) {
+  const form=doc.querySelector('#upload-form');
+  form.elements=Object.fromEntries(['title','text','language','channel'].map(key=>[key,{value:''}]));
+  return form;
+}
+test('JSON selection preserves explicit evidence until the user edits the text',async()=>{
+  const transcript=[{speaker:'client',text:'A\nOperator: quoted words',timestamp:'00:01'},{speaker:'operator',text:'B',timestamp:'00:04'}];
+  const items=[{title:'First',text:'Client: A\nOperator: B',language:'RU',channel:'agent chat',transcript},
+               {title:'Second',text:'Client: C\nOperator: D',language:'EN',channel:'voice call',transcript}];
+  const {h,doc}=setup(async()=>({conversations:items}));const form=uploadForm(doc);
+  await h.readUploadFile({name:'file.json',size:100});
+  assert.equal(form.elements.title.value,'First');assert.equal(doc.querySelector('#upload-json-choice').hidden,false);
+  h.rememberJsonConversation();assert.deepEqual(items[0].transcript,transcript);
+  form.elements.text.value='Client: Edited\nOperator: B';form.elements.title.value='Renamed';h.rememberJsonConversation();
+  assert.equal(items[0].transcript,undefined);
+  h.showJsonConversation(1);assert.equal(form.elements.language.value,'EN');
+  h.showJsonConversation(0);assert.equal(form.elements.title.value,'Renamed');assert.match(form.elements.text.value,/Edited/);
+});
+test('opening a new upload rejects a late response from the previous file',async()=>{
+  const pending=deferred();const {h,doc}=setup(()=>pending.promise);const form=uploadForm(doc);
+  const reading=h.readUploadFile({name:'old.json',size:100});h.openUpload();form.elements.text.value='New draft';
+  pending.resolve({conversations:[{title:'Old',text:'Old data',language:'RU',channel:'agent chat'}]});await reading;
+  assert.equal(form.elements.text.value,'New draft');
 });

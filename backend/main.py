@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal
 
 from . import ai_evaluator
-from .conversation_import import MAX_FILE_BYTES, extract_document, parse_transcript
+from .conversation_import import MAX_FILE_BYTES, extract_upload, normalize_messages, parse_transcript
 from starlette.concurrency import run_in_threadpool
 from .dataset import unpack_dataset
 from .scoring_engine import Criterion, ChecklistUpdate, default_checklist, score_evaluation, validate_value
@@ -238,7 +238,8 @@ class ResolveAppeal(BaseModel):
 class ImportConversation(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: str = Field(default="Загруженный диалог", min_length=1, max_length=120)
-    text: str = Field(min_length=1, max_length=100_000)
+    text: str | None = Field(default=None, min_length=1, max_length=100_000)
+    transcript: list[dict] | None = Field(default=None, min_length=2, max_length=2000)
     language: Literal["RU", "KZ", "EN"]
     channel: Literal["agent chat", "voice call"] = "agent chat"
 
@@ -313,16 +314,18 @@ def create_app(store_path=None, dataset_file=None):
             if len(content) > MAX_FILE_BYTES:
                 raise HTTPException(413, "Размер файла должен быть не больше 5 МБ.")
         try:
-            text = await run_in_threadpool(extract_document, filename, bytes(content))
+            result = await run_in_threadpool(extract_upload, filename, bytes(content))
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
-        return {"text": text}
+        return result
 
     @app.post("/api/conversations/import", status_code=201)
     def import_conversation(body: ImportConversation, request: Request):
         role(request, "supervisor")
         try:
-            transcript = parse_transcript(body.text)
+            if (body.text is None) == (body.transcript is None):
+                raise ValueError("Передайте текст или список реплик диалога.")
+            transcript = normalize_messages(body.transcript) if body.transcript is not None else parse_transcript(body.text)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
         title = body.title.strip()

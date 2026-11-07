@@ -1,0 +1,17 @@
+{
+  "title": "Консультация по тарифу",
+  "language": "RU",
+  "channel": "agent chat",
+  "transcript": [
+    {
+      "speaker": "client",
+      "text": "Где посмотреть мой тариф?",
+      "timestamp": "00:00"
+    },
+    {
+      "speaker": "operator",
+      "text": "Здравствуйте! Откройте раздел «Кабинет».",
+      "timestamp": "00:05"
+    }
+  ]
+}
