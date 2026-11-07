@@ -1,0 +1,142 @@
+/* Shared semantic palette. Light is the first-visit default, independent of OS theme. */
+:root {
+  color-scheme: light;
+  --bg: #f4f7fa;
+  --surface: #ffffff;
+  --raised: #edf2f7;
+  --line: #d7e0e9;
+  --text: #162537;
+  --text-secondary: #3e5066;
+  --muted: #53657a;
+  --green: #047857;
+  --green-light: #047857;
+  --amber: #86520a;
+  --red: #b4233e;
+  --input: #ffffff;
+  --control-border: #7c8da2;
+  --rail-bg: #ffffff;
+  --accent-surface: #e8f5ee;
+  --accent-border: #35795e;
+  --action: #047857;
+  --action-hover: #065f46;
+  --on-action: #ffffff;
+  --hover: #e8eef5;
+  --queue-bg: #f9fbfd;
+  --selected: #e6f3ed;
+  --neutral-avatar: #e4eaf1;
+  --context-bg: #f0f4f8;
+  --badge-bg: #e8eef5;
+  --warning-bg: #fff4de;
+  --error-bg: #ffedf0;
+  --track: #dce5ed;
+  --proof-bg: #edf3f7;
+  --proof-hover: #dfece7;
+  --audio-bg: #edf6f2;
+  --dialog-bg: #ffffff;
+  --dialog-backdrop: #15253766;
+  --shadow: #10263c24;
+  --code-bg: #f1f5f9;
+  --toast-bg: #e5f5eb;
+  --toast-error-bg: #ffedf0;
+  --focus: #047857;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f172a;
+  --surface: #141f32;
+  --raised: #1e293b;
+  --line: #2d3b51;
+  --text: #edf2f7;
+  --text-secondary: #c9d4e3;
+  --muted: #a3b2c6;
+  --green: #10b981;
+  --green-light: #5ee5b3;
+  --amber: #f0bd65;
+  --red: #f59398;
+  --input: #111c2e;
+  --control-border: #7689a2;
+  --rail-bg: #0b1220;
+  --accent-surface: #153d31;
+  --accent-border: #4eac86;
+  --action: #10b981;
+  --action-hover: #36d6a1;
+  --on-action: #052b21;
+  --hover: #29394f;
+  --queue-bg: #111b2c;
+  --selected: #192e35;
+  --neutral-avatar: #2a3548;
+  --context-bg: #162134;
+  --badge-bg: #263247;
+  --warning-bg: #3d3424;
+  --error-bg: #432c39;
+  --track: #2a364b;
+  --proof-bg: #1b293e;
+  --proof-hover: #253b4b;
+  --audio-bg: #142638;
+  --dialog-bg: #162237;
+  --dialog-backdrop: #030916b8;
+  --shadow: #00000066;
+  --code-bg: #101a2b;
+  --toast-bg: #23493f;
+  --toast-error-bg: #4b2b36;
+  --focus: #5ee5b3;
+}
+
+/* Keep working text readable in either palette. */
+.metric-label, .page-intro p { font-size: 12px; }
+.metric-note, .quiet, .budget { font-size: 11px; }
+.item-id, .item-preview, .criterion-name { font-size: 12px; }
+.item-bottom, .criterion-math, .criterion-number, .proof-time { font-size: 10px; }
+.criterion-reason, .proof, .score-note, .score-info p, .appeal-history { font-size: 11px; }
+.message-text { font-size: 13px; }
+.workspace-actions { flex-wrap: wrap; }
+.editor-grid { grid-template-columns: minmax(140px,1fr) 110px 75px 75px 31px; }
+.editor-grid:not(.with-scale) { grid-template-columns: minmax(140px,1fr) 110px 75px 31px; }
+.editor-rules { margin: 4px 0 12px; color: var(--text-secondary); }
+.editor-rules summary { cursor: pointer; font-size: 12px; padding: 7px 0; }
+.editor-rules[open] summary { margin-bottom: 10px; }
+#checklist-form { display: flex; flex-direction: column; max-height: calc(88svh - 48px); }
+#checklist-form > :not(#checklist-editor) { flex-shrink: 0; }
+#checklist-editor { flex: 1; min-height: 0; overflow-y: auto; padding-right: 8px; scrollbar-width: thin; scrollbar-color: var(--control-border) transparent; }
+#add-criterion { align-self: flex-start; margin-top: 8px; }
+.remove-criterion { grid-column: -2 / -1; }
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 96px;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.theme-toggle:hover { background: var(--raised); }
+.theme-toggle svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+:root:not([data-theme="dark"]) .theme-moon,
+:root[data-theme="dark"] .theme-sun { display: none; }
+@media (max-width: 700px) {
+  .theme-toggle { min-width: 36px; width: 36px; padding: 8px; }
+  .theme-toggle-label { display: none; }
+  .workspace-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .workspace-actions > .budget { grid-column: 1 / -1; }
+  .workspace-actions > .button { white-space: nowrap; }
+  .editor-grid { grid-template-columns: 1fr 1fr; }
+  .editor-grid:not(.with-scale) { grid-template-columns: 1fr 1fr; }
+}
