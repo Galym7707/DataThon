@@ -1,0 +1,750 @@
+{
+  "summary": [
+    {
+      "run": "holdout",
+      "completed": 4,
+      "dialogs": 4,
+      "matched": 27,
+      "compared": 32,
+      "agreement_percent": 84.38
+    }
+  ],
+  "criteria": [
+    {
+      "conversation_id": "p1-ru-025",
+      "criterion_id": "01",
+      "manual_value": 1,
+      "manual_reason": "Приветствие и представление оператора.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "01",
+          "reason": "Оператор поздоровался и представился в первом ответе, указав своё имя и компанию.",
+          "value": 1,
+          "is_na": false,
+          "proof_quote": "Здравствуйте! Меня зовут Валерия, поддержка Freedom Broker. С чем помочь?",
+          "proof_message_index": 9,
+          "proof_timestamp": "02:22",
+          "name": "Установление контакта",
+          "type": "binary",
+          "weight": 10.0,
+          "max_scale": 1.0,
+          "normalized_weight": 25.0,
+          "earned_score": 25.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-ru-025",
+      "criterion_id": "02",
+      "manual_value": 1,
+      "manual_reason": "Оператор запросил отсутствующую тему обращения; клиент не успел ответить.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "02",
+          "reason": "Клиент покинул чат до того, как оператор смог уточнить обстоятельства запроса.",
+          "value": null,
+          "is_na": true,
+          "proof_quote": "Клиент покинул чат.",
+          "proof_message_index": 10,
+          "proof_timestamp": "02:35",
+          "name": "Выявление потребности",
+          "type": "binary",
+          "weight": 15.0,
+          "max_scale": 1.0,
+          "normalized_weight": 0.0,
+          "earned_score": 0.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-ru-025",
+      "criterion_id": "03",
+      "manual_value": null,
+      "manual_reason": "Запрос не сформулирован, защищённых действий нет.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "03",
+          "reason": "Запрос не требовал идентификации, так как клиент не успел сформулировать запрос.",
+          "value": null,
+          "is_na": true,
+          "proof_quote": "Клиент покинул чат.",
+          "proof_message_index": 10,
+          "proof_timestamp": "02:35",
+          "name": "Идентификация",
+          "type": "binary",
+          "weight": 20.0,
+          "max_scale": 1.0,
+          "normalized_weight": 0.0,
+          "earned_score": 0.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-ru-025",
+      "criterion_id": "04",
+      "manual_value": null,
+      "manual_reason": "Клиент покинул чат до формулировки запроса.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "04",
+          "reason": "Чат закончился до того, как клиент сформулировал запрос, поэтому оценка не применяется.",
+          "value": null,
+          "is_na": true,
+          "proof_quote": "Клиент покинул чат.",
+          "proof_message_index": 10,
+          "proof_timestamp": "02:35",
+          "name": "Корректность и полнота консультации",
+          "type": "scale",
+          "weight": 20.0,
+          "max_scale": 20.0,
+          "normalized_weight": 0.0,
+          "earned_score": 0.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-ru-025",
+      "criterion_id": "05",
+      "manual_value": 1,
+      "manual_reason": "Вежливое приветствие и предложение помощи.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "05",
+          "reason": "Оператор был вежлив, но не успел отреагировать на проблему, так как клиент покинул чат.",
+          "value": 1,
+          "is_na": false,
+          "proof_quote": "Здравствуйте! Меня зовут Валерия, поддержка Freedom Broker. С чем помочь?",
+          "proof_message_index": 9,
+          "proof_timestamp": "02:22",
+          "name": "Эмпатия и клиентоориентированность",
+          "type": "binary",
+          "weight": 15.0,
+          "max_scale": 1.0,
+          "normalized_weight": 37.5,
+          "earned_score": 37.5
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-ru-025",
+      "criterion_id": "06",
+      "manual_value": 10,
+      "manual_reason": "Ясный вопрос без установленного сбоя.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "06",
+          "reason": "Оператор ясно и связно поздоровался и представился, но клиент покинул чат до продолжения.",
+          "value": 10,
+          "is_na": false,
+          "proof_quote": "Здравствуйте! Меня зовут Валерия, поддержка Freedom Broker. С чем помочь?",
+          "proof_message_index": 9,
+          "proof_timestamp": "02:22",
+          "name": "Управление диалогом и грамотность",
+          "type": "scale",
+          "weight": 15.0,
+          "max_scale": 10.0,
+          "normalized_weight": 37.5,
+          "earned_score": 37.5
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-ru-025",
+      "criterion_id": "07",
+      "manual_value": null,
+      "manual_reason": "Клиент покинул чат до возможности завершить разговор.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "07",
+          "reason": "Диалог оборвался до возможности его завершить, так как клиент покинул чат.",
+          "value": null,
+          "is_na": true,
+          "proof_quote": "Клиент покинул чат.",
+          "proof_message_index": 10,
+          "proof_timestamp": "02:35",
+          "name": "Завершение",
+          "type": "binary",
+          "weight": 5.0,
+          "max_scale": 1.0,
+          "normalized_weight": 0.0,
+          "earned_score": 0.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-ru-025",
+      "criterion_id": "08",
+      "manual_value": 0,
+      "manual_reason": "В единственной реплике оператора перечисленных нарушений нет.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "08",
+          "reason": "Нет признаков грубых ошибок или раскрытия конфиденциальных данных.",
+          "value": 0,
+          "is_na": false,
+          "proof_quote": "Здравствуйте! Меня зовут Валерия, поддержка Freedom Broker. С чем помочь?",
+          "proof_message_index": 9,
+          "proof_timestamp": "02:22",
+          "name": "Грубые ошибки",
+          "type": "flag",
+          "weight": 0.0,
+          "max_scale": 1.0,
+          "normalized_weight": 0.0,
+          "earned_score": 0.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-ru-029",
+      "criterion_id": "01",
+      "manual_value": 1,
+      "manual_reason": "Приветствие и представление есть, оскорбление рассматривается отдельно.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "01",
+          "reason": "Оператор представился в первом ответе, сказав: \"Здравствуйте, я Алексей\".",
+          "value": 1,
+          "is_na": false,
+          "proof_quote": "Здравствуйте, я Алексей. Вы вообще читать умеете? Бот всё написал.",
+          "proof_message_index": 9,
+          "proof_timestamp": "01:23",
+          "name": "Установление контакта",
+          "type": "binary",
+          "weight": 10.0,
+          "max_scale": 1.0,
+          "normalized_weight": 12.5,
+          "earned_score": 12.5
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-ru-029",
+      "criterion_id": "02",
+      "manual_value": null,
+      "manual_reason": "Потребность найти вход уже известна; уточнения не требовались.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "02",
+          "reason": "Оператор не уточнил, на каком сайте клиент не может найти вход, что было необходимо для точного ответа.",
+          "value": 0,
+          "is_na": false,
+          "proof_quote": "Здравствуйте, я Алексей. Вы вообще читать умеете? Бот всё написал.",
+          "proof_message_index": 9,
+          "proof_timestamp": "01:23",
+          "name": "Выявление потребности",
+          "type": "binary",
+          "weight": 15.0,
+          "max_scale": 1.0,
+          "normalized_weight": 18.75,
+          "earned_score": 0.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-ru-029",
+      "criterion_id": "03",
+      "manual_value": null,
+      "manual_reason": "Общая инструкция по входу, не проверка данных счёта.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "03",
+          "reason": "Запрос клиента не требовал идентификации, так как оператор предоставил общую информацию о сайте.",
+          "value": null,
+          "is_na": true,
+          "proof_quote": "Откройте tradernet.global, там вход в веб-версию.",
+          "proof_message_index": 11,
+          "proof_timestamp": "02:15",
+          "name": "Идентификация",
+          "type": "binary",
+          "weight": 20.0,
+          "max_scale": 1.0,
+          "normalized_weight": 0.0,
+          "earned_score": 0.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-ru-029",
+      "criterion_id": "04",
+      "manual_value": 20,
+      "manual_reason": "Конкретный адрес помог: клиент подтвердил вход.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "04",
+          "reason": "Оператор ответил на основной вопрос клиента, указав сайт для входа, но не извинился за грубость.",
+          "value": 15,
+          "is_na": false,
+          "proof_quote": "Откройте tradernet.global, там вход в веб-версию.",
+          "proof_message_index": 11,
+          "proof_timestamp": "02:15",
+          "name": "Корректность и полнота консультации",
+          "type": "scale",
+          "weight": 20.0,
+          "max_scale": 20.0,
+          "normalized_weight": 25.0,
+          "earned_score": 18.75
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-ru-029",
+      "criterion_id": "05",
+      "manual_value": 0,
+      "manual_reason": "Уничижительное обращение вместо реакции на недовольство клиента.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "05",
+          "reason": "Оператор был груб с клиентом, сказав: \"Вы вообще читать умеете?\"",
+          "value": 0,
+          "is_na": false,
+          "proof_quote": "Здравствуйте, я Алексей. Вы вообще читать умеете? Бот всё написал.",
+          "proof_message_index": 9,
+          "proof_timestamp": "01:23",
+          "name": "Эмпатия и клиентоориентированность",
+          "type": "binary",
+          "weight": 15.0,
+          "max_scale": 1.0,
+          "normalized_weight": 18.75,
+          "earned_score": 0.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-ru-029",
+      "criterion_id": "06",
+      "manual_value": 4,
+      "manual_reason": "Отсылка к боту без адреса вынуждает клиента переспросить, на какой сайт перейти.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "06",
+          "reason": "Оператор грубо ответил клиенту, но информация была передана ясно и связно.",
+          "value": 10,
+          "is_na": false,
+          "proof_quote": "Откройте tradernet.global, там вход в веб-версию.",
+          "proof_message_index": 11,
+          "proof_timestamp": "02:15",
+          "name": "Управление диалогом и грамотность",
+          "type": "scale",
+          "weight": 15.0,
+          "max_scale": 10.0,
+          "normalized_weight": 18.75,
+          "earned_score": 18.75
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-ru-029",
+      "criterion_id": "07",
+      "manual_value": 0,
+      "manual_reason": "Только прощание, без итога или предложения дальнейшей помощи.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "07",
+          "reason": "Оператор попрощался, но не предложил дальнейшую помощь или итог.",
+          "value": 0,
+          "is_na": false,
+          "proof_quote": "До свидания.",
+          "proof_message_index": 13,
+          "proof_timestamp": "03:26",
+          "name": "Завершение",
+          "type": "binary",
+          "weight": 5.0,
+          "max_scale": 1.0,
+          "normalized_weight": 6.25,
+          "earned_score": 0.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-ru-029",
+      "criterion_id": "08",
+      "manual_value": 1,
+      "manual_reason": "Фраза «Вы вообще читать умеете?» направлена на унижение клиента; трактую как оскорбление.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "08",
+          "reason": "Оператор оскорбил клиента, сказав: \"Вы вообще читать умеете?\"",
+          "value": 1,
+          "is_na": false,
+          "proof_quote": "Здравствуйте, я Алексей. Вы вообще читать умеете? Бот всё написал.",
+          "proof_message_index": 9,
+          "proof_timestamp": "01:23",
+          "name": "Грубые ошибки",
+          "type": "flag",
+          "weight": 0.0,
+          "max_scale": 1.0,
+          "normalized_weight": 0.0,
+          "earned_score": 0.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-kz-009",
+      "criterion_id": "01",
+      "manual_value": 1,
+      "manual_reason": "Приветствие и представление Айсұлу.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "01",
+          "reason": "Оператор поздоровался и представился в первом ответе, указав своё имя.",
+          "value": 1,
+          "is_na": false,
+          "proof_quote": "Сәлеметсіз бе! Мен Айсұлумын. Тикерді іздеу жолағына енгізіңіз де, нәтижеден сол тикері бар қағазды ашыңыз.",
+          "proof_message_index": 10,
+          "proof_timestamp": "02:04",
+          "name": "Установление контакта",
+          "type": "binary",
+          "weight": 10.0,
+          "max_scale": 1.0,
+          "normalized_weight": 12.5,
+          "earned_score": 12.5
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-kz-009",
+      "criterion_id": "02",
+      "manual_value": null,
+      "manual_reason": "Запрос и наличие точного тикера известны до ответа.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "02",
+          "reason": "Оператор не уточнил, какие именно бумаги клиент видит, чтобы помочь выбрать нужную.",
+          "value": 0,
+          "is_na": false,
+          "proof_quote": "Сізде нақты тикер болса, соған сәйкес келетін нәтижені ашыңыз.",
+          "proof_message_index": 15,
+          "proof_timestamp": "03:53",
+          "name": "Выявление потребности",
+          "type": "binary",
+          "weight": 15.0,
+          "max_scale": 1.0,
+          "normalized_weight": 18.75,
+          "earned_score": 0.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-kz-009",
+      "criterion_id": "03",
+      "manual_value": null,
+      "manual_reason": "Общие инструкции по поиску и заявке.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "03",
+          "reason": "Запрос не требовал идентификации, так как оператор не раскрывал персональные данные.",
+          "value": null,
+          "is_na": true,
+          "proof_quote": "Сәлеметсіз бе! Мен Айсұлумын. Тикерді іздеу жолағына енгізіңіз де, нәтижеден сол тикері бар қағазды ашыңыз.",
+          "proof_message_index": 10,
+          "proof_timestamp": "02:04",
+          "name": "Идентификация",
+          "type": "binary",
+          "weight": 20.0,
+          "max_scale": 1.0,
+          "normalized_weight": 0.0,
+          "earned_score": 0.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-kz-009",
+      "criterion_id": "04",
+      "manual_value": 20,
+      "manual_reason": "Поиск по тикеру, выбор совпадающего результата и просмотр заявки до отправки объяснены.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "04",
+          "reason": "Оператор ответил на все вопросы клиента, дав инструкции по поиску тикера и оформлению заявки.",
+          "value": 20,
+          "is_na": false,
+          "proof_quote": "Жарайды. Параметрлерді қарап шығыңыз. Сатып алуды қаласаңыз ғана өтінімді жіберіңіз.",
+          "proof_message_index": 17,
+          "proof_timestamp": "04:58",
+          "name": "Корректность и полнота консультации",
+          "type": "scale",
+          "weight": 20.0,
+          "max_scale": 20.0,
+          "normalized_weight": 25.0,
+          "earned_score": 25.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-kz-009",
+      "criterion_id": "05",
+      "manual_value": 1,
+      "manual_reason": "Вежливое сопровождение и учёт желания сначала посмотреть заявку.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "05",
+          "reason": "Оператор был вежлив и корректно реагировал на вопросы клиента.",
+          "value": 1,
+          "is_na": false,
+          "proof_quote": "Оқасы жоқ. Сау болыңыз!",
+          "proof_message_index": 19,
+          "proof_timestamp": "05:21",
+          "name": "Эмпатия и клиентоориентированность",
+          "type": "binary",
+          "weight": 15.0,
+          "max_scale": 1.0,
+          "normalized_weight": 18.75,
+          "earned_score": 18.75
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-kz-009",
+      "criterion_id": "06",
+      "manual_value": 10,
+      "manual_reason": "Понятная последовательность; дополнительный вопрос о похожем результате сам по себе не доказывает сбоя формулировок.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "06",
+          "reason": "Диалог был ясным и последовательным, оператор отвечал на вопросы клиента без задержек.",
+          "value": 10,
+          "is_na": false,
+          "proof_quote": "Жарайды. Параметрлерді қарап шығыңыз. Сатып алуды қаласаңыз ғана өтінімді жіберіңіз.",
+          "proof_message_index": 17,
+          "proof_timestamp": "04:58",
+          "name": "Управление диалогом и грамотность",
+          "type": "scale",
+          "weight": 15.0,
+          "max_scale": 10.0,
+          "normalized_weight": 18.75,
+          "earned_score": 18.75
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-kz-009",
+      "criterion_id": "07",
+      "manual_value": 0,
+      "manual_reason": "«Оқасы жоқ. Сау болыңыз!» без итога или предложения помощи.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "07",
+          "reason": "Оператор завершил диалог с прощанием, но не предложил дальнейшую помощь или итог.",
+          "value": 0,
+          "is_na": false,
+          "proof_quote": "Оқасы жоқ. Сау болыңыз!",
+          "proof_message_index": 19,
+          "proof_timestamp": "05:21",
+          "name": "Завершение",
+          "type": "binary",
+          "weight": 5.0,
+          "max_scale": 1.0,
+          "normalized_weight": 6.25,
+          "earned_score": 0.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-kz-009",
+      "criterion_id": "08",
+      "manual_value": 0,
+      "manual_reason": "Перечисленных нарушений не обнаружено.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "08",
+          "reason": "Оператор не раскрыл конфиденциальные данные и не оскорбил клиента.",
+          "value": 0,
+          "is_na": false,
+          "proof_quote": "Сәлеметсіз бе! Мен Айсұлумын. Тикерді іздеу жолағына енгізіңіз де, нәтижеден сол тикері бар қағазды ашыңыз.",
+          "proof_message_index": 10,
+          "proof_timestamp": "02:04",
+          "name": "Грубые ошибки",
+          "type": "flag",
+          "weight": 0.0,
+          "max_scale": 1.0,
+          "normalized_weight": 0.0,
+          "earned_score": 0.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-en-006",
+      "criterion_id": "01",
+      "manual_value": 1,
+      "manual_reason": "Приветствие и представление Sam.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "01",
+          "reason": "Оператор представился в первом ответе, сказав: 'Hello, I'm Sam.'",
+          "value": 1,
+          "is_na": false,
+          "proof_quote": "Hello, I'm Sam. I understand why you'd want to check. We'll need to verify your identity before we look at the account.",
+          "proof_message_index": 10,
+          "proof_timestamp": "02:43",
+          "name": "Установление контакта",
+          "type": "binary",
+          "weight": 10.0,
+          "max_scale": 1.0,
+          "normalized_weight": 10.0,
+          "earned_score": 10.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-en-006",
+      "criterion_id": "02",
+      "manual_value": 1,
+      "manual_reason": "Уточнены валюта и время уже отправленного перевода.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "02",
+          "reason": "Оператор уточнил недостающие детали, такие как валюта и время отправки перевода, до передачи дела на проверку.",
+          "value": 1,
+          "is_na": false,
+          "proof_quote": "Thanks. What currency did you send?",
+          "proof_message_index": 13,
+          "proof_timestamp": "03:40",
+          "name": "Выявление потребности",
+          "type": "binary",
+          "weight": 15.0,
+          "max_scale": 1.0,
+          "normalized_weight": 15.0,
+          "earned_score": 15.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-en-006",
+      "criterion_id": "03",
+      "manual_value": 1,
+      "manual_reason": "Есть системное подтверждение личности до рассмотрения счёта.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "03",
+          "reason": "Идентификация клиента была подтверждена системой до раскрытия информации о счёте.",
+          "value": 1,
+          "is_na": false,
+          "proof_quote": "Customer identity verified.",
+          "proof_message_index": 12,
+          "proof_timestamp": "03:13",
+          "name": "Идентификация",
+          "type": "binary",
+          "weight": 20.0,
+          "max_scale": 1.0,
+          "normalized_weight": 20.0,
+          "earned_score": 20.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-en-006",
+      "criterion_id": "04",
+      "manual_value": 20,
+      "manual_reason": "Передача на проверку и канал ответа обозначены; вопросы о повторном обращении и загрузке отчёта закрыты.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "04",
+          "reason": "Оператор закрыл все вопросы клиента, включая проверку перевода и инструкцию по загрузке отчёта.",
+          "value": 20,
+          "is_na": false,
+          "proof_quote": "You're welcome. We'll follow up here about the transfer. Goodbye!",
+          "proof_message_index": 29,
+          "proof_timestamp": "11:29",
+          "name": "Корректность и полнота консультации",
+          "type": "scale",
+          "weight": 20.0,
+          "max_scale": 20.0,
+          "normalized_weight": 20.0,
+          "earned_score": 20.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-en-006",
+      "criterion_id": "05",
+      "manual_value": 1,
+      "manual_reason": "Оператор признаёт беспокойство клиента и объясняет дальнейшие действия.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "05",
+          "reason": "Оператор вежлив и отреагировал на беспокойство клиента, объяснив необходимость проверки личности.",
+          "value": 1,
+          "is_na": false,
+          "proof_quote": "Hello, I'm Sam. I understand why you'd want to check. We'll need to verify your identity before we look at the account.",
+          "proof_message_index": 10,
+          "proof_timestamp": "02:43",
+          "name": "Эмпатия и клиентоориентированность",
+          "type": "binary",
+          "weight": 15.0,
+          "max_scale": 1.0,
+          "normalized_weight": 15.0,
+          "earned_score": 15.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-en-006",
+      "criterion_id": "06",
+      "manual_value": 10,
+      "manual_reason": "Последовательные ответы на основной и дополнительные вопросы.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "06",
+          "reason": "Диалог был ясным и последовательным, оператор предупредил о передаче вопроса на проверку.",
+          "value": 10,
+          "is_na": false,
+          "proof_quote": "I've sent the case for review with the currency you provided. We'll follow up in this chat once there's an update.",
+          "proof_message_index": 15,
+          "proof_timestamp": "04:58",
+          "name": "Управление диалогом и грамотность",
+          "type": "scale",
+          "weight": 15.0,
+          "max_scale": 10.0,
+          "normalized_weight": 15.0,
+          "earned_score": 15.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-en-006",
+      "criterion_id": "07",
+      "manual_value": 1,
+      "manual_reason": "Итог о будущем ответе по переводу и Goodbye.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "07",
+          "reason": "Оператор завершил диалог с итогом о дальнейшем шаге и попрощался.",
+          "value": 1,
+          "is_na": false,
+          "proof_quote": "You're welcome. We'll follow up here about the transfer. Goodbye!",
+          "proof_message_index": 29,
+          "proof_timestamp": "11:29",
+          "name": "Завершение",
+          "type": "binary",
+          "weight": 5.0,
+          "max_scale": 1.0,
+          "normalized_weight": 5.0,
+          "earned_score": 5.0
+        }
+      }
+    },
+    {
+      "conversation_id": "p1-en-006",
+      "criterion_id": "08",
+      "manual_value": 0,
+      "manual_reason": "Перечисленных нарушений не обнаружено.",
+      "runs": {
+        "holdout": {
+          "criterion_id": "08",
+          "reason": "Оператор не раскрыл конфиденциальные данные и не оскорбил клиента.",
+          "value": 0,
+          "is_na": false,
+          "proof_quote": "Hello, I'm Sam. I understand why you'd want to check. We'll need to verify your identity before we look at the account.",
+          "proof_message_index": 10,
+          "proof_timestamp": "02:43",
+          "name": "Грубые ошибки",
+          "type": "flag",
+          "weight": 0.0,
+          "max_scale": 1.0,
+          "normalized_weight": 0.0,
+          "earned_score": 0.0
+        }
+      }
+    }
+  ]
+}

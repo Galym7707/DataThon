@@ -1,0 +1,464 @@
+{
+  "method": "Manual labels frozen before revised-prompt holdout predictions; not organizer ground truth.",
+  "checklist": {
+    "version": 3,
+    "criteria": [
+      {
+        "id": "01",
+        "name": "Установление контакта",
+        "description": "Оператор поздоровался на языке клиента и представился в первом ответе.",
+        "type": "binary",
+        "weight": 10.0,
+        "max_scale": 1.0,
+        "levels": [],
+        "allow_na": false,
+        "na_condition": ""
+      },
+      {
+        "id": "02",
+        "name": "Выявление потребности",
+        "description": "Учёл известные детали и уточнил недостающее до ответа.",
+        "type": "binary",
+        "weight": 15.0,
+        "max_scale": 1.0,
+        "levels": [],
+        "allow_na": true,
+        "na_condition": "Данных для ответа хватало с самого начала."
+      },
+      {
+        "id": "03",
+        "name": "Идентификация",
+        "description": "Проверка личности подтверждена до раскрытия персональных данных или защищённого действия. Если требовалась, но не подтверждена, ответ Нет.",
+        "type": "binary",
+        "weight": 20.0,
+        "max_scale": 1.0,
+        "levels": [],
+        "allow_na": true,
+        "na_condition": "Запрос не требовал идентификации (общая информация без защищённых действий)."
+      },
+      {
+        "id": "04",
+        "name": "Корректность и полнота консультации",
+        "description": "20: все существенные вопросы закрыты или дан корректный следующий шаг; 15: основной решён, пропущена второстепенная деталь; 10: существенный вопрос открыт; 5: общая подсказка без понятного действия; 0: нет ответа по существу или ключевая рекомендация ошибочна.",
+        "type": "scale",
+        "weight": 20.0,
+        "max_scale": 20.0,
+        "levels": [
+          0.0,
+          5.0,
+          10.0,
+          15.0,
+          20.0
+        ],
+        "allow_na": true,
+        "na_condition": "Чат закончился до того, как клиент сформулировал запрос."
+      },
+      {
+        "id": "05",
+        "name": "Эмпатия и клиентоориентированность",
+        "description": "Вежливость и реакция на конкретную проблему, если клиент выразил недовольство или описал неудобство.",
+        "type": "binary",
+        "weight": 15.0,
+        "max_scale": 1.0,
+        "levels": [],
+        "allow_na": false,
+        "na_condition": ""
+      },
+      {
+        "id": "06",
+        "name": "Управление диалогом и грамотность",
+        "description": "10: ясно и связно, при явном ожидании предупредил; 7: один заметный сбой, но ответ понятен; 4: клиент переспрашивает из-за формулировок или порядка; 0: бессвязно или противоречиво. Порог первой реакции 3 минуты, теги и вложения в оценку не входят.",
+        "type": "scale",
+        "weight": 15.0,
+        "max_scale": 10.0,
+        "levels": [
+          0.0,
+          4.0,
+          7.0,
+          10.0
+        ],
+        "allow_na": false,
+        "na_condition": ""
+      },
+      {
+        "id": "07",
+        "name": "Завершение",
+        "description": "Подвёл итог ИЛИ предложил дальнейшую помощь, И попрощался.",
+        "type": "binary",
+        "weight": 5.0,
+        "max_scale": 1.0,
+        "levels": [],
+        "allow_na": true,
+        "na_condition": "Диалог оборвался до возможности его завершить."
+      },
+      {
+        "id": "08",
+        "name": "Грубые ошибки",
+        "description": "Да, если оператор оскорбил клиента, предложил платную услугу в обход компании (личный перевод для инвестирования / частная платная консультация) или раскрыл конфиденциальные данные. Предложения достаточно, согласие клиента не нужно. Отдельный флаг, итог не обнуляется.",
+        "type": "flag",
+        "weight": 0.0,
+        "max_scale": 1.0,
+        "levels": [],
+        "allow_na": false,
+        "na_condition": ""
+      }
+    ]
+  },
+  "reviews": [
+    {
+      "conversation_id": "p1-ru-025",
+      "final_score": 100.0,
+      "has_gross_violation": false,
+      "criteria": [
+        {
+          "criterion_id": "01",
+          "value": 1,
+          "is_na": false,
+          "reason": "Приветствие и представление оператора.",
+          "evidence_message_indices": [
+            9
+          ]
+        },
+        {
+          "criterion_id": "02",
+          "value": 1,
+          "is_na": false,
+          "reason": "Оператор запросил отсутствующую тему обращения; клиент не успел ответить.",
+          "evidence_message_indices": [
+            9
+          ]
+        },
+        {
+          "criterion_id": "03",
+          "value": null,
+          "is_na": true,
+          "reason": "Запрос не сформулирован, защищённых действий нет.",
+          "evidence_message_indices": [
+            0,
+            9,
+            10
+          ]
+        },
+        {
+          "criterion_id": "04",
+          "value": null,
+          "is_na": true,
+          "reason": "Клиент покинул чат до формулировки запроса.",
+          "evidence_message_indices": [
+            0,
+            9,
+            10
+          ]
+        },
+        {
+          "criterion_id": "05",
+          "value": 1,
+          "is_na": false,
+          "reason": "Вежливое приветствие и предложение помощи.",
+          "evidence_message_indices": [
+            9
+          ]
+        },
+        {
+          "criterion_id": "06",
+          "value": 10,
+          "is_na": false,
+          "reason": "Ясный вопрос без установленного сбоя.",
+          "evidence_message_indices": [
+            9
+          ]
+        },
+        {
+          "criterion_id": "07",
+          "value": null,
+          "is_na": true,
+          "reason": "Клиент покинул чат до возможности завершить разговор.",
+          "evidence_message_indices": [
+            10
+          ]
+        },
+        {
+          "criterion_id": "08",
+          "value": 0,
+          "is_na": false,
+          "reason": "В единственной реплике оператора перечисленных нарушений нет.",
+          "evidence_message_indices": [
+            9
+          ]
+        }
+      ]
+    },
+    {
+      "conversation_id": "p1-ru-029",
+      "final_score": 55.38,
+      "has_gross_violation": true,
+      "criteria": [
+        {
+          "criterion_id": "01",
+          "value": 1,
+          "is_na": false,
+          "reason": "Приветствие и представление есть, оскорбление рассматривается отдельно.",
+          "evidence_message_indices": [
+            9
+          ]
+        },
+        {
+          "criterion_id": "02",
+          "value": null,
+          "is_na": true,
+          "reason": "Потребность найти вход уже известна; уточнения не требовались.",
+          "evidence_message_indices": [
+            0,
+            4
+          ]
+        },
+        {
+          "criterion_id": "03",
+          "value": null,
+          "is_na": true,
+          "reason": "Общая инструкция по входу, не проверка данных счёта.",
+          "evidence_message_indices": [
+            11
+          ]
+        },
+        {
+          "criterion_id": "04",
+          "value": 20,
+          "is_na": false,
+          "reason": "Конкретный адрес помог: клиент подтвердил вход.",
+          "evidence_message_indices": [
+            11,
+            12
+          ]
+        },
+        {
+          "criterion_id": "05",
+          "value": 0,
+          "is_na": false,
+          "reason": "Уничижительное обращение вместо реакции на недовольство клиента.",
+          "evidence_message_indices": [
+            9,
+            12
+          ]
+        },
+        {
+          "criterion_id": "06",
+          "value": 4,
+          "is_na": false,
+          "reason": "Отсылка к боту без адреса вынуждает клиента переспросить, на какой сайт перейти.",
+          "evidence_message_indices": [
+            9,
+            10
+          ]
+        },
+        {
+          "criterion_id": "07",
+          "value": 0,
+          "is_na": false,
+          "reason": "Только прощание, без итога или предложения дальнейшей помощи.",
+          "evidence_message_indices": [
+            13
+          ]
+        },
+        {
+          "criterion_id": "08",
+          "value": 1,
+          "is_na": false,
+          "reason": "Фраза «Вы вообще читать умеете?» направлена на унижение клиента; трактую как оскорбление.",
+          "evidence_message_indices": [
+            9
+          ]
+        }
+      ]
+    },
+    {
+      "conversation_id": "p1-kz-009",
+      "final_score": 92.31,
+      "has_gross_violation": false,
+      "criteria": [
+        {
+          "criterion_id": "01",
+          "value": 1,
+          "is_na": false,
+          "reason": "Приветствие и представление Айсұлу.",
+          "evidence_message_indices": [
+            10
+          ]
+        },
+        {
+          "criterion_id": "02",
+          "value": null,
+          "is_na": true,
+          "reason": "Запрос и наличие точного тикера известны до ответа.",
+          "evidence_message_indices": [
+            0,
+            4,
+            9
+          ]
+        },
+        {
+          "criterion_id": "03",
+          "value": null,
+          "is_na": true,
+          "reason": "Общие инструкции по поиску и заявке.",
+          "evidence_message_indices": [
+            10,
+            12
+          ]
+        },
+        {
+          "criterion_id": "04",
+          "value": 20,
+          "is_na": false,
+          "reason": "Поиск по тикеру, выбор совпадающего результата и просмотр заявки до отправки объяснены.",
+          "evidence_message_indices": [
+            10,
+            12,
+            15,
+            17,
+            18
+          ]
+        },
+        {
+          "criterion_id": "05",
+          "value": 1,
+          "is_na": false,
+          "reason": "Вежливое сопровождение и учёт желания сначала посмотреть заявку.",
+          "evidence_message_indices": [
+            10,
+            15,
+            17
+          ]
+        },
+        {
+          "criterion_id": "06",
+          "value": 10,
+          "is_na": false,
+          "reason": "Понятная последовательность; дополнительный вопрос о похожем результате сам по себе не доказывает сбоя формулировок.",
+          "evidence_message_indices": [
+            10,
+            12,
+            15,
+            17
+          ]
+        },
+        {
+          "criterion_id": "07",
+          "value": 0,
+          "is_na": false,
+          "reason": "«Оқасы жоқ. Сау болыңыз!» без итога или предложения помощи.",
+          "evidence_message_indices": [
+            19
+          ]
+        },
+        {
+          "criterion_id": "08",
+          "value": 0,
+          "is_na": false,
+          "reason": "Перечисленных нарушений не обнаружено.",
+          "evidence_message_indices": [
+            10,
+            12,
+            15,
+            17,
+            19
+          ]
+        }
+      ]
+    },
+    {
+      "conversation_id": "p1-en-006",
+      "final_score": 100.0,
+      "has_gross_violation": false,
+      "criteria": [
+        {
+          "criterion_id": "01",
+          "value": 1,
+          "is_na": false,
+          "reason": "Приветствие и представление Sam.",
+          "evidence_message_indices": [
+            10
+          ]
+        },
+        {
+          "criterion_id": "02",
+          "value": 1,
+          "is_na": false,
+          "reason": "Уточнены валюта и время уже отправленного перевода.",
+          "evidence_message_indices": [
+            13,
+            14,
+            18,
+            19
+          ]
+        },
+        {
+          "criterion_id": "03",
+          "value": 1,
+          "is_na": false,
+          "reason": "Есть системное подтверждение личности до рассмотрения счёта.",
+          "evidence_message_indices": [
+            12
+          ]
+        },
+        {
+          "criterion_id": "04",
+          "value": 20,
+          "is_na": false,
+          "reason": "Передача на проверку и канал ответа обозначены; вопросы о повторном обращении и загрузке отчёта закрыты.",
+          "evidence_message_indices": [
+            15,
+            20,
+            22,
+            25,
+            27,
+            29
+          ]
+        },
+        {
+          "criterion_id": "05",
+          "value": 1,
+          "is_na": false,
+          "reason": "Оператор признаёт беспокойство клиента и объясняет дальнейшие действия.",
+          "evidence_message_indices": [
+            10
+          ]
+        },
+        {
+          "criterion_id": "06",
+          "value": 10,
+          "is_na": false,
+          "reason": "Последовательные ответы на основной и дополнительные вопросы.",
+          "evidence_message_indices": [
+            18,
+            20,
+            22,
+            25,
+            27
+          ]
+        },
+        {
+          "criterion_id": "07",
+          "value": 1,
+          "is_na": false,
+          "reason": "Итог о будущем ответе по переводу и Goodbye.",
+          "evidence_message_indices": [
+            29
+          ]
+        },
+        {
+          "criterion_id": "08",
+          "value": 0,
+          "is_na": false,
+          "reason": "Перечисленных нарушений не обнаружено.",
+          "evidence_message_indices": [
+            10,
+            12,
+            15,
+            29
+          ]
+        }
+      ]
+    }
+  ]
+}

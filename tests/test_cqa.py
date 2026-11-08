@@ -18,6 +18,12 @@ def results(criteria=None):
             for c in (criteria or default_checklist())]
 
 
+def wire_results():
+    return {r['criterion_id']: {k: v for k, v in {**r, 'proof_id': 'turn-1-part-0'}.items()
+                               if k not in ('proof_quote', 'proof_timestamp', 'proof_message_index')}
+            for r in results()}
+
+
 def test_weight_redistribution_and_discrete_scales():
     r = results()
     for item in r:
@@ -43,7 +49,7 @@ def test_flag_does_not_zero_score_and_zero_weight_is_null():
     assert score_evaluation(c, r)["final_score"] is None
 
 
-@pytest.mark.parametrize("index,patch", [(0,{"value":None,"is_na":True}),(5,{"value":5}),(1,{"value":None}),(0,{"value":True})])
+@pytest.mark.parametrize("index,patch", [(4,{"value":None,"is_na":True}),(5,{"value":5}),(1,{"value":None}),(0,{"value":True})])
 def test_invalid_values_rejected(index, patch):
     r = results(); r[index].update(patch)
     with pytest.raises(ValueError):
@@ -66,10 +72,10 @@ def test_fabricated_evidence_rejected(patch):
 
 def test_schema_prevents_invalid_na_and_missing_criteria():
     import jsonschema
-    schema=response_schema(default_checklist())
-    payload={"results":{r["criterion_id"]:r for r in results()}}
+    schema=response_schema(default_checklist(), ['turn-1-part-0'])
+    payload={"results":wire_results()}
     jsonschema.validate(payload,schema)
-    for cid,value in (("01",None),("02",0)):
+    for cid,value in (("05",None),("02",0)):
         invalid=copy.deepcopy(payload)
         invalid['results'][cid].update(is_na=True,value=value)
         with pytest.raises(jsonschema.ValidationError):
@@ -86,7 +92,7 @@ def test_evaluator_uses_strict_schema_and_parses_keyed_results(monkeypatch):
     captured={}
     def create(**kwargs):
         captured.update(kwargs)
-        payload={'results':{r['criterion_id']:r for r in results()}}
+        payload={'results':wire_results()}
         return SimpleNamespace(model='mock-gpt-4o',usage=SimpleNamespace(prompt_tokens=12,completion_tokens=15,total_tokens=27),
             choices=[SimpleNamespace(finish_reason='stop',message=SimpleNamespace(refusal=None,content=json.dumps(payload)))])
     def fake_client(**kwargs):
@@ -98,6 +104,36 @@ def test_evaluator_uses_strict_schema_and_parses_keyed_results(monkeypatch):
     assert len(output['results']) == 8 and output['usage']['total_tokens'] == 27
     assert captured['response_format']['json_schema']['strict'] is True
     assert captured['response_format']['type'] == 'json_schema'
+    assert output['results'][0]['proof_quote'] == 'Здравствуйте!'
+    assert output['results'][0]['proof_message_index'] == 1
+    assert output['results'][0]['proof_timestamp'] == '00:02'
+
+
+def test_evidence_catalog_preserves_asr_text_and_exact_iso_timestamp():
+    from backend.ai_evaluator import evidence_catalog
+    text = ('[Имя скрыто]  Ошипко ASR. Әңгіме. ' * 20) + 'Последний фрагмент.'
+    timestamp = '2026-11-03T13:11:17.2581733+00:00'
+    messages, catalog = evidence_catalog([{'speaker': 'operator', 'timestamp': timestamp, 'text': text}])
+    assert ''.join(p['text'] for p in messages[0]['evidence']) == text
+    assert all(0 < len(p['proof_quote']) <= 180 and p['proof_quote'] in text for p in catalog.values())
+    assert all(p['proof_timestamp'] == timestamp and p['proof_message_index'] == 0 for p in catalog.values())
+
+
+def test_long_call_schema_does_not_repeat_evidence_enums():
+    ids = [f'turn-{i}-part-0' for i in range(240)]
+    schema = response_schema(default_checklist(), ids)
+    def enum_count(node):
+        if isinstance(node, dict):
+            return len(node.get('enum', [])) + sum(enum_count(v) for k, v in node.items() if k != 'enum')
+        return sum(enum_count(v) for v in node) if isinstance(node, list) else 0
+    assert schema['$defs']['evidence_id']['enum'] == ids
+    assert enum_count(schema) < 1000
+    from jsonschema import Draft202012Validator, ValidationError
+    payload = {'results': wire_results()}
+    Draft202012Validator(schema).validate(payload)
+    payload['results']['01']['proof_id'] = 'unknown-source'
+    with pytest.raises(ValidationError):
+        Draft202012Validator(schema).validate(payload)
 
 
 def test_invalid_answer_usage_is_recorded(client,monkeypatch):
@@ -159,6 +195,17 @@ def test_unlimited_evaluations_keep_cache_and_persistent_usage(client):
     persisted = Store(s.path).budget()
     assert persisted["attempts"] == 6
     assert persisted["limit"] is None and persisted["remaining"] is None
+
+
+def test_changed_instructions_invalidate_cache(client, monkeypatch):
+    from backend import ai_evaluator
+    first = evaluated(client)
+    assert client.post('/api/evaluate/test-1', headers=SUPERVISOR).json()['cached']
+    monkeypatch.setattr(ai_evaluator, 'SYSTEM_PROMPT', ai_evaluator.SYSTEM_PROMPT + '\nUpdated policy.')
+    assert client.get('/api/conversations/test-1').json()['status'] == 'Stale'
+    second = client.post('/api/evaluate/test-1', headers=SUPERVISOR).json()
+    assert not second['cached']
+    assert second['evaluation']['policy_signature'] != first['policy_signature']
 
 
 def test_failed_request_records_usage_without_fabricated_score(client,monkeypatch):
@@ -413,7 +460,8 @@ def test_malformed_model_response_is_rejected_with_usage(monkeypatch,payload):
         choices=[SimpleNamespace(finish_reason='stop',message=SimpleNamespace(refusal=None,content=json.dumps(payload)))])
     monkeypatch.setattr(ai_evaluator,'OpenAI',lambda **kwargs:SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw:response))))
     with pytest.raises(EvaluationValidationError) as error:
-        ai_evaluator.evaluate({'language':'RU','channel':'agent chat','transcript':[]},default_checklist())
+        ai_evaluator.evaluate({'language':'RU','channel':'agent chat','transcript':[
+            {'speaker':'client','timestamp':'00:00','text':'Вопрос'}]},default_checklist())
     assert error.value.usage['total_tokens'] == 7
 
 

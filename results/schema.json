@@ -1,0 +1,412 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CQA organizer results JSON 1.0",
+  "description": "Based on CQA_Student_Guide_Appendix_Results.pdf pp. 2-3. contact=null is the organizer-approved exception for DEV calls with missing recording start. Coverage, criterion uniqueness and evidence bounds are validated against the original dataset by backend.results_export.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "team_name",
+    "model",
+    "results"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "team_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "name"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "local",
+            "external_api",
+            "hybrid"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "results": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "conversation_id",
+              "status",
+              "criteria",
+              "score"
+            ],
+            "properties": {
+              "conversation_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "const": "ok"
+              },
+              "criteria": {
+                "type": "array",
+                "minItems": 8,
+                "maxItems": 8,
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "criterion_id",
+                        "value",
+                        "rationale",
+                        "evidence_turns"
+                      ],
+                      "properties": {
+                        "criterion_id": {
+                          "const": "contact"
+                        },
+                        "value": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        "rationale": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "evidence_turns": {
+                          "type": "array",
+                          "minItems": 1,
+                          "uniqueItems": true,
+                          "items": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "criterion_id",
+                        "value",
+                        "rationale",
+                        "evidence_turns"
+                      ],
+                      "properties": {
+                        "criterion_id": {
+                          "const": "discovery"
+                        },
+                        "value": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        "rationale": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "evidence_turns": {
+                          "type": "array",
+                          "minItems": 1,
+                          "uniqueItems": true,
+                          "items": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "criterion_id",
+                        "value",
+                        "rationale",
+                        "evidence_turns"
+                      ],
+                      "properties": {
+                        "criterion_id": {
+                          "const": "identification"
+                        },
+                        "value": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        "rationale": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "evidence_turns": {
+                          "type": "array",
+                          "minItems": 1,
+                          "uniqueItems": true,
+                          "items": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "criterion_id",
+                        "value",
+                        "rationale",
+                        "evidence_turns"
+                      ],
+                      "properties": {
+                        "criterion_id": {
+                          "const": "consultation"
+                        },
+                        "value": {
+                          "enum": [
+                            0,
+                            5,
+                            10,
+                            15,
+                            20,
+                            null
+                          ],
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "rationale": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "evidence_turns": {
+                          "type": "array",
+                          "minItems": 1,
+                          "uniqueItems": true,
+                          "items": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "criterion_id",
+                        "value",
+                        "rationale",
+                        "evidence_turns"
+                      ],
+                      "properties": {
+                        "criterion_id": {
+                          "const": "empathy"
+                        },
+                        "value": {
+                          "type": [
+                            "boolean"
+                          ]
+                        },
+                        "rationale": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "evidence_turns": {
+                          "type": "array",
+                          "minItems": 1,
+                          "uniqueItems": true,
+                          "items": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "criterion_id",
+                        "value",
+                        "rationale",
+                        "evidence_turns"
+                      ],
+                      "properties": {
+                        "criterion_id": {
+                          "const": "dialogue"
+                        },
+                        "value": {
+                          "enum": [
+                            0,
+                            4,
+                            7,
+                            10
+                          ],
+                          "type": "integer"
+                        },
+                        "rationale": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "evidence_turns": {
+                          "type": "array",
+                          "minItems": 1,
+                          "uniqueItems": true,
+                          "items": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "criterion_id",
+                        "value",
+                        "rationale",
+                        "evidence_turns"
+                      ],
+                      "properties": {
+                        "criterion_id": {
+                          "const": "closure"
+                        },
+                        "value": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        "rationale": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "evidence_turns": {
+                          "type": "array",
+                          "minItems": 1,
+                          "uniqueItems": true,
+                          "items": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "criterion_id",
+                        "value",
+                        "rationale",
+                        "evidence_turns"
+                      ],
+                      "properties": {
+                        "criterion_id": {
+                          "const": "critical"
+                        },
+                        "value": {
+                          "type": [
+                            "boolean"
+                          ]
+                        },
+                        "rationale": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "evidence_turns": {
+                          "type": "array",
+                          "minItems": 1,
+                          "uniqueItems": true,
+                          "items": {
+                            "type": "integer",
+                            "minimum": 1
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "score": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "final_score",
+                  "critical_flag"
+                ],
+                "properties": {
+                  "final_score": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "critical_flag": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "conversation_id",
+              "status",
+              "criteria",
+              "score",
+              "error"
+            ],
+            "properties": {
+              "conversation_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "const": "error"
+              },
+              "criteria": {
+                "type": "array",
+                "maxItems": 0
+              },
+              "score": {
+                "type": "null"
+              },
+              "error": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

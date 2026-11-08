@@ -1,0 +1,77 @@
+{
+  "team_name": "ZHIGITTER",
+  "dataset_group_id": "DEV",
+  "records": 65,
+  "channels": {
+    "agent chat": 60,
+    "voice call": 5
+  },
+  "languages": {
+    "RU": 35,
+    "KZ": 15,
+    "EN": 15
+  },
+  "criteria_count": 520,
+  "statuses": {
+    "ok": 65
+  },
+  "actual_model": {
+    "mode": "external_api",
+    "name": "gpt-4o-2024-08-06"
+  },
+  "policy_signature": "ab36c7200dcc5ea4ceb68621e1f65d585a3dcc5785125d088412ebf1a1248a63",
+  "checklist_version": 6,
+  "checklist_semantic_hash": "d29ffd8de023b1ac4943aae918fd8d4e0dcb724ea50da0b28a7f85895e02b626",
+  "prompt_sha256": "08f18c3ecad881f43e601d5e8e9ed42c6a57f894590a53cb8a554f10d7d62d13",
+  "results_sha256": "2875e41349749dfa6396e39dd33fecb278742ca10379a07392edcdc469eda405",
+  "initial_full_run": {
+    "started_at": "2026-11-08T04:24:37.718797+00:00",
+    "finished_at": "2026-11-08T04:27:41.775396+00:00",
+    "records": 65,
+    "success": 61,
+    "cached": 11,
+    "failed_ids": [
+      "p4-ru-003",
+      "p4-ru-002",
+      "p4-ru-005",
+      "p4-ru-004"
+    ]
+  },
+  "retry": {
+    "started_at": "2026-11-08T04:29:43.671303+00:00",
+    "finished_at": "2026-11-08T04:30:05.153774+00:00",
+    "success": 4,
+    "ids": [
+      "p4-ru-003",
+      "p4-ru-002",
+      "p4-ru-005",
+      "p4-ru-004"
+    ]
+  },
+  "na_by_criterion": {
+    "discovery": 30,
+    "identification": 54,
+    "consultation": 1,
+    "closure": 2
+  },
+  "critical_ids": [
+    "p1-ru-009",
+    "p1-ru-022",
+    "p1-ru-023",
+    "p1-ru-029",
+    "p1-kz-013",
+    "p1-kz-015",
+    "p1-en-013",
+    "p1-en-014"
+  ],
+  "tests": {
+    "python_passed": 92,
+    "frontend_passed": 24
+  },
+  "limitations": [
+    "Manual calibration labels were authored by the assistant, not organizer ground truth.",
+    "Semantic disagreements remain and are documented in calibration/REPORT.md.",
+    "Calls evaluated from transcripts, not audio.",
+    "No PROD dataset was supplied; no PROD results fabricated."
+  ]
+}

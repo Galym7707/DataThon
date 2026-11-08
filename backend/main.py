@@ -205,7 +205,9 @@ class Store:
             return "Evaluating"
         if not e:
             return "Pending"
-        if e["semantic_hash"] != semantic_hash(self.data["checklist"]["criteria"]) or e["transcript_hash"] != digest(self.data["records"][cid]):
+        if (e["semantic_hash"] != semantic_hash(self.data["checklist"]["criteria"])
+                or e["transcript_hash"] != digest(self.data["records"][cid])
+                or e.get("policy_signature") != ai_evaluator.policy_signature()):
             return "Stale"
         return "Evaluated"
 
@@ -412,6 +414,7 @@ def create_app(store_path=None, dataset_file=None):
             evaluation = {**score_evaluation(config["criteria"], raw["results"]), "results": raw["results"],
                           "id": str(uuid.uuid4()), "created_at": now(), "checklist_version": config["version"],
                           "semantic_hash": semantic_hash(config["criteria"]), "transcript_hash": digest(record),
+                          "policy_signature": ai_evaluator.policy_signature(),
                           "source": "openai", "model": raw["model"], "usage": raw["usage"]}
             with store.lock:
                 store.archive(cid)
