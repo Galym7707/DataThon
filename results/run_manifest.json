@@ -1,7 +1,7 @@
 {
   "team_name": "zhigitter",
   "schema_version": "1.0",
-  "exported_at": "2026-11-08T06:33:32.616245+00:00",
+  "exported_at": "2026-11-08T06:57:37.858809+00:00",
   "source": "Saved OpenAI assessments from the local application; no new provider calls during export",
   "policy_version": "2026-11-08.3",
   "policy_sha256": "c3dd34016dc86dd082c9180c588e7db7a79b9c97c26d95f06075c522a2fa1e21",
@@ -28,11 +28,21 @@
       "records": 10,
       "ok": 10,
       "errors": 0,
-      "results_sha256": "92f876f55c58ce83cfc6d6ce6e6f86629caf7e9255dc044c0ccc4307ec4d8192",
+      "results_sha256": "7e7888e916a8418f0f66858ed07590ce7390f26dce53a6229cda8cf1e3077325",
       "source_records_sha256": "3b7e27ab97e873d6cc00300ebe10afa9d3b4a1ffc18fe6a10f19ab3131af29f0",
-      "evaluated_at_min": "2026-11-08T06:21:07.902990+00:00",
-      "evaluated_at_max": "2026-11-08T06:22:50.131190+00:00",
-      "critical_count": 2
+      "evaluated_at_min": "2026-11-08T06:55:06.748917+00:00",
+      "evaluated_at_max": "2026-11-08T06:55:39.708005+00:00",
+      "critical_count": 2,
+      "review": {
+        "mode": "OpenAI re-evaluation with unverified manual audit observations",
+        "prompt_version": "independent-review-v1",
+        "completed": 10,
+        "provider_calls": 10,
+        "automatic_retries": 0,
+        "changed_conversations": 8,
+        "changed_criterion_values": 14,
+        "semantic_review": "Some grading discrepancies remain; structural validation does not establish semantic correctness."
+      }
     }
   },
   "excluded": {
