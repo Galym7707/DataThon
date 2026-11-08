@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "CQA organizer results JSON 1.0",
-  "description": "Based on CQA_Student_Guide_Appendix_Results.pdf pp. 2-3. contact=null is the organizer-approved exception for DEV calls with missing recording start. Coverage, criterion uniqueness and evidence bounds are validated against the original dataset by backend.results_export.",
+  "description": "Local implementation of CQA_Student_Guide_Appendix_Results.pdf, pages 2–3. Coverage, criterion uniqueness, evidence bounds and score arithmetic are also validated against the original dataset by backend.results_export.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -81,10 +81,7 @@
                           "const": "contact"
                         },
                         "value": {
-                          "type": [
-                            "boolean",
-                            "null"
-                          ]
+                          "type": "boolean"
                         },
                         "rationale": {
                           "type": "string",

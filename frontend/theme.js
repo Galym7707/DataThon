@@ -1,5 +1,6 @@
 /* Runs before stylesheets to avoid painting the wrong theme on reload. */
 (() => {
+  const t = value=>window.CQA_I18N?.t(value) ?? value;
   const key = 'freedom-cqa-theme';
   const root = document.documentElement;
   const valid = value => value === 'light' || value === 'dark';
@@ -12,9 +13,9 @@
     if (button) {
       const dark = selected === 'dark';
       button.setAttribute('aria-pressed', String(dark));
-      button.setAttribute('aria-label', dark ? 'Включить светлую тему' : 'Включить тёмную тему');
-      button.title = dark ? 'Тёмная тема. Переключить на светлую' : 'Светлая тема. Переключить на тёмную';
-      button.querySelector('.theme-toggle-label').textContent = dark ? 'Тёмная' : 'Светлая';
+      button.setAttribute('aria-label', t(dark ? 'Включить светлую тему' : 'Включить тёмную тему'));
+      button.title = t(dark ? 'Тёмная тема. Переключить на светлую' : 'Светлая тема. Переключить на тёмную');
+      button.querySelector('.theme-toggle-label').textContent = t(dark ? 'Тёмная' : 'Светлая');
     }
     if (persist) {
       try { localStorage.setItem(key, selected); } catch { /* Session toggle still works. */ }
@@ -29,6 +30,7 @@
       apply(root.dataset.theme === 'dark' ? 'light' : 'dark', true);
     });
   });
+  window.addEventListener('cqa-language-change',()=>apply(root.dataset.theme));
   window.addEventListener('storage', event => {
     if (event.key === key || event.key === null) apply(event.key === null ? 'light' : event.newValue);
   });

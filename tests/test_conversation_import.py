@@ -3,7 +3,7 @@ import io
 import json
 import zipfile
 import pytest
-from fastapi.testclient import TestClient
+from preview_client import PreviewClient as TestClient
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 from backend.conversation_import import extract_document, parse_transcript, MAX_FILE_BYTES

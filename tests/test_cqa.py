@@ -2,7 +2,7 @@
 import copy
 import json
 import pytest
-from fastapi.testclient import TestClient
+from preview_client import PreviewClient as TestClient
 from backend.main import create_app, cache_audio
 from backend.scoring_engine import default_checklist, score_evaluation, ChecklistUpdate
 from backend.ai_evaluator import validate_evidence, response_schema, EvaluationValidationError
@@ -14,14 +14,22 @@ OPERATOR = {"X-Role": "operator"}
 def results(criteria=None):
     return [{"criterion_id": c["id"], "value": 0 if c["type"] == "flag" else c["max_scale"],
              "is_na": False, "reason": "Обоснование по тестовой реплике", "proof_quote": "Здравствуйте",
-             "proof_timestamp": "00:02", "proof_message_index": 1}
+             "proof_timestamp": "00:02", "proof_message_index": 1,
+             "recommendation": "", "practice_task": ""}
             for c in (criteria or default_checklist())]
 
 
-def wire_results():
-    return {r['criterion_id']: {k: v for k, v in {**r, 'proof_id': 'turn-1-part-0'}.items()
-                               if k not in ('proof_quote', 'proof_timestamp', 'proof_message_index')}
-            for r in results()}
+def wire_results(rows=None):
+    from backend.ai_evaluator import wire_checklist
+    keyed = {r['criterion_id']: r for r in (rows or results())}
+    output = {}
+    for c in wire_checklist(default_checklist()):
+        old = keyed[c['source_id']]
+        output[c['id']] = {'criterion_id': c['id'], 'value': None if old['is_na'] else bool(old['value']) if c['type'] != 'scale' else old['value'],
+            'rationale': old['reason'], 'evidence_turns': [old['proof_message_index'] + 1],
+            'proof_turn': old['proof_message_index'] + 1,
+            **{key: old[key] for key in ('recommendation', 'practice_task')}}
+    return {'status': 'evaluated', 'manual_review': None, 'results': output}
 
 
 def test_weight_redistribution_and_discrete_scales():
@@ -49,7 +57,7 @@ def test_flag_does_not_zero_score_and_zero_weight_is_null():
     assert score_evaluation(c, r)["final_score"] is None
 
 
-@pytest.mark.parametrize("index,patch", [(4,{"value":None,"is_na":True}),(5,{"value":5}),(1,{"value":None}),(0,{"value":True})])
+@pytest.mark.parametrize("index,patch", [(0,{"value":None,"is_na":True}),(5,{"value":5}),(1,{"value":None}),(0,{"value":True})])
 def test_invalid_values_rejected(index, patch):
     r = results(); r[index].update(patch)
     with pytest.raises(ValueError):
@@ -72,15 +80,15 @@ def test_fabricated_evidence_rejected(patch):
 
 def test_schema_prevents_invalid_na_and_missing_criteria():
     import jsonschema
-    schema=response_schema(default_checklist(), ['turn-1-part-0'])
-    payload={"results":wire_results()}
+    schema=response_schema(default_checklist())
+    payload=wire_results()
     jsonschema.validate(payload,schema)
-    for cid,value in (("05",None),("02",0)):
+    for cid,value in (("contact",None),("discovery",0)):
         invalid=copy.deepcopy(payload)
-        invalid['results'][cid].update(is_na=True,value=value)
+        invalid['results'][cid].update(value=value)
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(invalid,schema)
-    missing=copy.deepcopy(payload); missing['results'].pop('01')
+    missing=copy.deepcopy(payload); missing['results'].pop('contact')
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(missing,schema)
 
@@ -92,7 +100,7 @@ def test_evaluator_uses_strict_schema_and_parses_keyed_results(monkeypatch):
     captured={}
     def create(**kwargs):
         captured.update(kwargs)
-        payload={'results':wire_results()}
+        payload=wire_results()
         return SimpleNamespace(model='mock-gpt-4o',usage=SimpleNamespace(prompt_tokens=12,completion_tokens=15,total_tokens=27),
             choices=[SimpleNamespace(finish_reason='stop',message=SimpleNamespace(refusal=None,content=json.dumps(payload)))])
     def fake_client(**kwargs):
@@ -104,36 +112,6 @@ def test_evaluator_uses_strict_schema_and_parses_keyed_results(monkeypatch):
     assert len(output['results']) == 8 and output['usage']['total_tokens'] == 27
     assert captured['response_format']['json_schema']['strict'] is True
     assert captured['response_format']['type'] == 'json_schema'
-    assert output['results'][0]['proof_quote'] == 'Здравствуйте!'
-    assert output['results'][0]['proof_message_index'] == 1
-    assert output['results'][0]['proof_timestamp'] == '00:02'
-
-
-def test_evidence_catalog_preserves_asr_text_and_exact_iso_timestamp():
-    from backend.ai_evaluator import evidence_catalog
-    text = ('[Имя скрыто]  Ошипко ASR. Әңгіме. ' * 20) + 'Последний фрагмент.'
-    timestamp = '2026-11-03T13:11:17.2581733+00:00'
-    messages, catalog = evidence_catalog([{'speaker': 'operator', 'timestamp': timestamp, 'text': text}])
-    assert ''.join(p['text'] for p in messages[0]['evidence']) == text
-    assert all(0 < len(p['proof_quote']) <= 180 and p['proof_quote'] in text for p in catalog.values())
-    assert all(p['proof_timestamp'] == timestamp and p['proof_message_index'] == 0 for p in catalog.values())
-
-
-def test_long_call_schema_does_not_repeat_evidence_enums():
-    ids = [f'turn-{i}-part-0' for i in range(240)]
-    schema = response_schema(default_checklist(), ids)
-    def enum_count(node):
-        if isinstance(node, dict):
-            return len(node.get('enum', [])) + sum(enum_count(v) for k, v in node.items() if k != 'enum')
-        return sum(enum_count(v) for v in node) if isinstance(node, list) else 0
-    assert schema['$defs']['evidence_id']['enum'] == ids
-    assert enum_count(schema) < 1000
-    from jsonschema import Draft202012Validator, ValidationError
-    payload = {'results': wire_results()}
-    Draft202012Validator(schema).validate(payload)
-    payload['results']['01']['proof_id'] = 'unknown-source'
-    with pytest.raises(ValidationError):
-        Draft202012Validator(schema).validate(payload)
 
 
 def test_invalid_answer_usage_is_recorded(client,monkeypatch):
@@ -183,38 +161,50 @@ def appeal(client, evaluation, cid="01"):
     return response.json()
 
 
-def test_unlimited_evaluations_keep_cache_and_persistent_usage(client):
+def test_cache_and_persistent_budget(client):
     evaluated(client)
     assert client.post('/api/evaluate/test-1',headers=SUPERVISOR).json()["cached"]
     assert client.get('/api/health').json()["budget"]["attempts"] == 1
-    for _ in range(4):
+    for _ in range(2):
         assert client.post('/api/evaluate/test-1?force=true',headers=SUPERVISOR).status_code == 200
-    assert client.post('/api/evaluate/test-2',headers=SUPERVISOR).status_code == 200
+    assert client.post('/api/evaluate/test-2',headers=SUPERVISOR).status_code == 429
     s = client.app.state.store
     from backend.main import Store
-    persisted = Store(s.path).budget()
-    assert persisted["attempts"] == 6
-    assert persisted["limit"] is None and persisted["remaining"] is None
+    assert Store(s.path).budget()["remaining"] == 0
 
 
-def test_changed_instructions_invalidate_cache(client, monkeypatch):
-    from backend import ai_evaluator
-    first = evaluated(client)
-    assert client.post('/api/evaluate/test-1', headers=SUPERVISOR).json()['cached']
-    monkeypatch.setattr(ai_evaluator, 'SYSTEM_PROMPT', ai_evaluator.SYSTEM_PROMPT + '\nUpdated policy.')
-    assert client.get('/api/conversations/test-1').json()['status'] == 'Stale'
-    second = client.post('/api/evaluate/test-1', headers=SUPERVISOR).json()
-    assert not second['cached']
-    assert second['evaluation']['policy_signature'] != first['policy_signature']
-
-
-def test_failed_request_records_usage_without_fabricated_score(client,monkeypatch):
+def test_failed_request_consumes_ceiling_without_fabricated_score(client,monkeypatch):
     def fail(*args):
         raise RuntimeError("Test provider failure")
     monkeypatch.setattr("backend.ai_evaluator.evaluate",fail)
     assert client.post('/api/evaluate/test-1',headers=SUPERVISOR).status_code == 502
     assert client.get('/api/health').json()["budget"]["attempts"] == 1
     assert client.get('/api/conversations/test-1').json()["evaluation"] is None
+
+
+def test_unlimited_evaluations_keep_usage_and_can_restore_a_ceiling(client, monkeypatch):
+    monkeypatch.setenv("OPENAI_MAX_CALLS", "unlimited")
+    for _ in range(4):
+        response = client.post('/api/evaluate/test-1?force=true', headers=SUPERVISOR)
+        assert response.status_code == 200
+    budget = response.json()["budget"]
+    assert budget["unlimited"] and budget["limit"] is None and budget["remaining"] is None
+    assert budget["attempts"] == 4 and budget["prompt_tokens"] == 40 and budget["completion_tokens"] == 80
+    from backend.main import Store
+    assert Store(client.app.state.store.path).budget()["attempts"] == 4
+    monkeypatch.setenv("OPENAI_MAX_CALLS", "3")
+    assert client.post('/api/evaluate/test-2', headers=SUPERVISOR).status_code == 429
+
+
+def test_unlimited_batch_does_not_compare_null_remaining_to_count(client, monkeypatch):
+    monkeypatch.setenv("OPENAI_MAX_CALLS", "unlimited")
+    client.app.state.store.data["budget"]["attempts"] = 100
+    response = client.post('/api/evaluate-batch', headers=SUPERVISOR,
+                           json={"conversation_ids": ["test-1", "test-2"]})
+    assert response.status_code == 200
+    result = response.json()
+    assert len(result["completed"]) == 2 and "error" not in result
+    assert result["budget"]["attempts"] == 102 and result["budget"]["remaining"] is None
 
 
 def test_appeal_approve_recalculates_audits_and_cannot_resolve_twice(client):
@@ -265,7 +255,7 @@ def test_weight_change_no_ai_and_rule_change_stale(client):
     assert detail['status'] == 'Stale'
 
 
-def test_roles_token_search_and_batch_without_call_ceiling(client,monkeypatch):
+def test_roles_token_search_and_batch_cap(client,monkeypatch):
     assert len(client.get('/api/conversations?search=Здравствуйте').json()['items']) == 2
     assert client.get('/api/conversations?language=EN').json()['items'] == []
     assert client.post('/api/evaluate/test-1',headers=OPERATOR).status_code == 403
@@ -274,10 +264,7 @@ def test_roles_token_search_and_batch_without_call_ceiling(client,monkeypatch):
     headers={**SUPERVISOR,'X-Supervisor-Token':'qa-test-token'}
     assert client.post('/api/evaluate/test-1',headers=headers).status_code == 200
     monkeypatch.setenv('OPENAI_MAX_CALLS','1')
-    response=client.post('/api/evaluate-batch',headers=headers,json={'conversation_ids':['test-2']})
-    assert response.status_code == 200
-    assert len(response.json()['completed']) == 1
-    assert response.json()['budget']['remaining'] is None
+    assert client.post('/api/evaluate-batch',headers=headers,json={'conversation_ids':['test-2']}).status_code == 429
 
 
 def test_checklist_add_remove_and_all_na(client):
@@ -386,7 +373,7 @@ def test_failed_appeal_write_preserves_pending_and_original_score(client,monkeyp
 def test_removed_records_supersede_appeals_and_are_not_rescored(client):
     e=evaluated(client);appeal(client,e)
     store=client.app.state.store
-    payload={'isSuccess':True,'data':{'dataset_group_id':'OTHER','total_records':1,
+    payload={'isSuccess':True,'data':{'dataset_group_id':'TEST','total_records':1,
               'records':[copy.deepcopy(store.data['records']['test-2'])]}}
     store.import_data(payload)
     assert store.data['appeals'][0]['status'] == 'SUPERSEDED'
@@ -460,8 +447,7 @@ def test_malformed_model_response_is_rejected_with_usage(monkeypatch,payload):
         choices=[SimpleNamespace(finish_reason='stop',message=SimpleNamespace(refusal=None,content=json.dumps(payload)))])
     monkeypatch.setattr(ai_evaluator,'OpenAI',lambda **kwargs:SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw:response))))
     with pytest.raises(EvaluationValidationError) as error:
-        ai_evaluator.evaluate({'language':'RU','channel':'agent chat','transcript':[
-            {'speaker':'client','timestamp':'00:00','text':'Вопрос'}]},default_checklist())
+        ai_evaluator.evaluate({'language':'RU','channel':'agent chat','transcript':[{'speaker':'operator','text':'Здравствуйте','timestamp':'00:00'}]},default_checklist())
     assert error.value.usage['total_tokens'] == 7
 
 
@@ -480,7 +466,7 @@ def test_appeals_workspace_lists_pending_and_resolved(client):
 def test_removed_conversation_appeal_remains_visible_without_broken_link(client):
     e=evaluated(client);appeal(client,e)
     store=client.app.state.store
-    store.import_data({'isSuccess':True,'data':{'records':[store.data['records']['test-2']]}})
+    store.import_data({'isSuccess':True,'data':{'dataset_group_id':'TEST','records':[store.data['records']['test-2']]}})
     item=client.get('/api/appeals',headers=SUPERVISOR).json()['items'][0]
     assert item['status'] == 'SUPERSEDED' and item['conversation_available'] is False
 

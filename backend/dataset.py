@@ -4,6 +4,38 @@ from datetime import datetime
 from urllib.parse import urlsplit
 
 
+def canonical_group(group):
+    return {"dev": "DEV", "fbroker": "FBroker", "swap": "SWAP"}.get(group.lower(), group)
+
+
+def record_group(data, cid):
+    return data.get("record_groups", {}).get(cid, "UPLOADED" if cid in data.get("uploaded_ids", []) else canonical_group(data.get("dataset_group_id", "DEV")))
+
+
+def evaluation_enabled(data, cid):
+    # The supplemental set is for viewing until its separate instructions arrive.
+    return record_group(data, cid) != "SWAP"
+
+
+def dataset_groups(data):
+    groups = {}
+    for cid in data.get("records", {}):
+        group = record_group(data, cid)
+        groups.setdefault(group, {"id": group, "total": 0, "evaluation_enabled": group != "SWAP"})["total"] += 1
+    order = {"DEV": 0, "FBroker": 1, "SWAP": 2, "UPLOADED": 3}
+    return sorted(groups.values(), key=lambda item: (order.get(item["id"], 4), item["id"]))
+
+
+def scoped_data(data, group=None):
+    if group is None:
+        return data
+    group = canonical_group(group)
+    if group not in {item["id"] for item in dataset_groups(data)}:
+        raise ValueError("Набор диалогов не найден")
+    return {**data, "dataset_group_id": group,
+            "records": {cid: record for cid, record in data["records"].items() if record_group(data, cid) == group}}
+
+
 def valid_timestamp(value):
     if not isinstance(value, str):
         return False
@@ -55,4 +87,4 @@ def unpack_dataset(payload):
     group = data.get("dataset_group_id", "DEV")
     if not isinstance(group, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", group):
         raise ValueError("Некорректное название группы")
-    return group, records
+    return canonical_group(group), records

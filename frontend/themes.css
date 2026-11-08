@@ -1,39 +1,39 @@
 /* Shared semantic palette. Light is the first-visit default, independent of OS theme. */
 :root {
   color-scheme: light;
-  --bg: #f3f6f3;
-  --nav-bg: #0d3b2e;
+  --bg: #f4f6f8;
+  --nav-bg: #064a34;
   --nav-text: #e5efe9;
-  --nav-active: #235b45;
+  --nav-active: #226847;
   --nav-accent: #a7dec2;
   --surface: #ffffff;
-  --raised: #edf2ed;
-  --line: #dbe3dd;
-  --text: #182d24;
-  --text-secondary: #3f5548;
-  --muted: #57695f;
+  --raised: #f1f4f7;
+  --line: #e2e8ed;
+  --text: #172b35;
+  --text-secondary: #405460;
+  --muted: #526b79;
   --green: #047857;
   --green-light: #047857;
   --amber: #86520a;
   --red: #b4233e;
   --input: #ffffff;
-  --control-border: #809487;
+  --control-border: #758b98;
   --rail-bg: #ffffff;
   --accent-surface: #e8f5ee;
   --accent-border: #35795e;
   --action: #047857;
   --action-hover: #065f46;
   --on-action: #ffffff;
-  --hover: #eaf0e9;
-  --queue-bg: #fafcf9;
-  --selected: #e6f1e9;
+  --hover: #eff5f4;
+  --queue-bg: #f8fafb;
+  --selected: #edf6f1;
   --neutral-avatar: #e9eee8;
   --context-bg: #f1f4ef;
   --badge-bg: #edf1ec;
   --warning-bg: #fff5e3;
   --error-bg: #ffedf0;
   --track: #e1e8e1;
-  --proof-bg: #f0f5ef;
+  --proof-bg: #eef4f9;
   --proof-hover: #e4eee4;
   --audio-bg: #edf6f2;
   --dialog-bg: #ffffff;
@@ -44,7 +44,10 @@
   --code-bg: #f1f4ef;
   --toast-bg: #e5f5eb;
   --toast-error-bg: #ffedf0;
+  --secondary-border:#758b98; --secondary-text:#234758; --secondary-hover:#eaf1f5;
   --focus: #047857;
+  --blue:#2865af; --blue-surface:#eaf2fe; --purple:#7654b4; --purple-surface:#f1ecfa;
+  --chat-bg:#fafbfc; --operator-bubble:#edf7f1; --operator-border:#daece1; --selected-border:#bfdcca;
 }
 
 :root[data-theme="dark"] {
@@ -88,7 +91,10 @@
   --code-bg: #142219;
   --toast-bg: #234932;
   --toast-error-bg: #4b2b2f;
+  --secondary-border:#89a799; --secondary-text:#e0eee6; --secondary-hover:#2a4135;
   --focus: #89dfb0;
+  --blue:#9bc5ff; --blue-surface:#233b55; --purple:#c9b6ef; --purple-surface:#382e4b;
+  --chat-bg:#15211b; --operator-bubble:#223d2f; --operator-border:#375341; --selected-border:#527f64;
 }
 
 .theme-toggle {

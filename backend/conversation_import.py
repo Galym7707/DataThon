@@ -11,8 +11,10 @@ from .dataset import valid_timestamp
 MAX_FILE_BYTES = 5 * 1024 * 1024
 MAX_TEXT_CHARS = 100_000
 SPEAKERS = {"клиент": "client", "client": "client", "customer": "client",
+            "тұтынушы": "client", "тапсырыс беруші": "client",
             "оператор": "operator", "operator": "operator", "agent": "operator",
-            "бот": "bot", "bot": "bot", "система": "system", "system": "system"}
+            "маман": "operator",
+            "бот": "bot", "bot": "bot", "система": "system", "system": "system", "жүйе": "system"}
 LINE = re.compile(r"^\s*(?:(?:\[(?P<bracket>[^\]]{1,40})\]|(?P<time>\d{1,3}:[0-5]\d(?::[0-5]\d)?))\s+)?"
                   r"(?P<speaker>" + "|".join(SPEAKERS) + r")\s*[:—–-]\s*(?P<text>.*)$", re.IGNORECASE)
 
@@ -61,7 +63,7 @@ def extract_document(filename, content):
             if not text.strip():
                 raise DocumentError("В PDF нет текста. Вставьте расшифровку или выберите документ с текстом.")
         else:
-            raise DocumentError("Поддерживаются файлы TXT, DOCX, PDF с текстом и JSON.")
+            raise DocumentError("Поддерживаются файлы TXT, DOCX, PDF с текстом, JSON и изображения PNG, JPG, WebP.")
     except DocumentError:
         raise
     except Exception:
@@ -183,6 +185,12 @@ def extract_json(content):
 
 
 def extract_upload(filename, content):
-    if PurePosixPath(filename.replace("\\", "/")).suffix.lower() == ".json":
+    if not content or len(content) > MAX_FILE_BYTES:
+        raise DocumentError("Выберите непустой файл размером до 5 МБ.")
+    suffix = PurePosixPath(filename.replace("\\", "/")).suffix.lower()
+    if suffix in (".png", ".jpg", ".jpeg", ".webp"):
+        from .image_ocr import recognize_image
+        return recognize_image(content)
+    if suffix == ".json":
         return {"conversations": extract_json(content)}
     return {"text": extract_document(filename, content)}

@@ -22,11 +22,15 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Literal
 
-from . import ai_evaluator
+from . import ai_evaluator, ai_gateway
+from .ai_requests import AIRequests
+from .coaching import recommendations
+from .practice import register_practice
 from .conversation_import import MAX_FILE_BYTES, extract_upload, normalize_messages, parse_transcript
+from .evaluation_policy import EVALUATION_POLICY_VERSION
 from starlette.concurrency import run_in_threadpool
-from .dataset import unpack_dataset
-from .scoring_engine import Criterion, ChecklistUpdate, default_checklist, score_evaluation, validate_value
+from .dataset import unpack_dataset, record_group, dataset_groups, evaluation_enabled
+from .scoring_engine import Criterion, ChecklistUpdate, default_checklist, score_evaluation, validate_value, upgrade_default_closure
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
@@ -123,6 +127,22 @@ def semantic_hash(criteria):
     return digest([{k: v for k, v in c.items() if k != "weight"} for c in normalized])
 
 
+def audit_metadata(event):
+    """Technical audit contains identifiers and counters, never conversation content."""
+    keys = {"id", "timestamp", "action", "role", "conversation_id", "criterion_id", "evaluation_id", "attempt_id",
+            "request_id", "version", "previous_version", "checklist_version", "requires_ai", "records", "messages",
+            "group", "status", "usage", "error_type", "purpose", "provider", "protection", "privacy_revision",
+            "mask_personal_data", "block_external_ai", "revision", "error_code"}
+    result = {key: copy.deepcopy(value) for key, value in event.items() if key in keys}
+    if isinstance(event.get("appeal"), dict):
+        result["appeal"] = {key: event["appeal"][key] for key in
+                           ("id", "conversation_id", "criterion_id", "evaluation_id", "status") if key in event["appeal"]}
+    for key in ("before", "after"):
+        if isinstance(event.get(key), dict) and "final_score" in event[key]:
+            result[key] = {"final_score": event[key]["final_score"]}
+    return result
+
+
 class StorageError(RuntimeError):
     """A failed commit; the in-memory state has been rolled back."""
 
@@ -132,6 +152,7 @@ class Store:
         self.path = Path(path)
         self.lock = threading.RLock()
         self.active = set()
+        self.practice_active = set()
         self.audio_lock = threading.Lock()
         if self.path.exists():
             # Do not silently discard a damaged store, including budget reservations.
@@ -141,7 +162,31 @@ class Store:
                          "dataset_group_id": "DEV", "records": {}, "evaluations": {},
                          "history": {}, "appeals": [], "audit": [],
                          "budget": {"attempts": 0, "prompt_tokens": 0, "completion_tokens": 0}}
+        # Migrate legacy audit entries that duplicated private business records.
+        # Original conversations, appeal comments and evaluation history stay intact.
+        self.data["audit"] = [audit_metadata(event) for event in self.data.get("audit", [])]
         self._committed = copy.deepcopy(self.data)
+        # Pending appeals attached to the previous evaluator remain in history,
+        # but must not deadlock reevaluation after an instruction-version change.
+        migrated = False
+        if "record_groups" not in self.data:
+            self.data["record_groups"] = {cid: record_group(self.data, cid) for cid in self.data["records"]}
+            migrated = True
+        if upgrade_default_closure(self.data["checklist"]["criteria"]):
+            migrated = True
+            self.data["checklist"]["version"] += 1
+            self.event("checklist_closure_rule_updated", "system", criterion_id="07",
+                       checklist_version=self.data["checklist"]["version"])
+        for appeal in self.data.get("appeals", []):
+            evaluation = self.data.get("evaluations", {}).get(appeal["conversation_id"])
+            if appeal["status"] == "PENDING" and evaluation and evaluation.get("policy_version") != EVALUATION_POLICY_VERSION:
+                appeal.update(status="SUPERSEDED", resolved_at=now(),
+                              resolution_comment="Обновлены инструкции оценки; после новой оценки можно подать новую апелляцию.")
+                self.event("appeal_superseded", "system", conversation_id=appeal["conversation_id"],
+                           criterion_id=appeal["criterion_id"], evaluation_id=evaluation["id"])
+                migrated = True
+        if migrated:
+            self.save()
 
     def save(self):
         temporary = self.path.with_suffix(".tmp")
@@ -163,8 +208,8 @@ class Store:
         self._committed = copy.deepcopy(self.data)
 
     def event(self, action, role, **details):
-        self.data["audit"].append({"id": str(uuid.uuid4()), "timestamp": now(),
-                                   "action": action, "role": role, **details})
+        self.data["audit"].append(audit_metadata({"id": str(uuid.uuid4()), "timestamp": now(),
+                                   "action": action, "role": role, **details}))
 
     def archive(self, cid):
         if cid in self.data["evaluations"]:
@@ -180,21 +225,23 @@ class Store:
         with self.lock:
             if self.active:
                 raise HTTPException(409, "Дождитесь завершения оценки")
-            uploaded = {cid: self.data["records"][cid] for cid in self.data.get("uploaded_ids", []) if cid in self.data["records"]}
-            if any(r["conversation_id"] in uploaded for r in records):
-                raise ValueError("Номер диалога группы совпал с загруженным диалогом")
-            incoming = {r["conversation_id"] for r in records} | uploaded.keys()
-            if len(incoming) > 5000:
+            preserved = {cid: r for cid, r in self.data["records"].items() if record_group(self.data, cid) != group}
+            if any(r["conversation_id"] in preserved for r in records):
+                raise ValueError("Номер диалога уже используется в другом наборе")
+            incoming = {r["conversation_id"] for r in records}
+            if len(incoming) + len(preserved) > 5000:
                 raise ValueError("Всего должно быть не больше 5000 диалогов")
-            for removed in set(self.data["records"]) - incoming:
+            for removed in set(self.data["records"]) - incoming - preserved.keys():
                 self.supersede_appeals(removed)
             for r in records:
                 cid = r["conversation_id"]
                 previous = self.data["records"].get(cid)
                 if previous and digest(previous) != digest(r):
                     self.supersede_appeals(cid)
-            # Retain history and archived appeals across group changes.
-            self.data["records"] = {**uploaded, **{r["conversation_id"]: copy.deepcopy(r) for r in records}}
+            # Refresh only this group; keep other datasets, grades and pending appeals.
+            self.data["record_groups"] = {**{cid: record_group(self.data, cid) for cid in preserved},
+                                           **{cid: group for cid in incoming}}
+            self.data["records"] = {**preserved, **{r["conversation_id"]: copy.deepcopy(r) for r in records}}
             self.data["dataset_group_id"] = group
             self.event("dataset_imported", "supervisor", records=len(records), group=group)
             self.save()
@@ -203,17 +250,44 @@ class Store:
         e = self.data["evaluations"].get(cid)
         if cid in self.active:
             return "Evaluating"
+        failure = self.data.get("evaluation_errors", {}).get(cid)
+        if (failure and failure.get("manual_review") and failure.get("transcript_hash") == digest(self.data["records"][cid])
+                and failure.get("semantic_hash") == semantic_hash(self.data["checklist"]["criteria"])
+                and failure.get("policy_version") == EVALUATION_POLICY_VERSION):
+            return "Review"
         if not e:
+            if failure and not failure.get("manual_review") and failure.get("transcript_hash") == digest(self.data["records"][cid]):
+                return "Error"
             return "Pending"
-        if (e["semantic_hash"] != semantic_hash(self.data["checklist"]["criteria"])
-                or e["transcript_hash"] != digest(self.data["records"][cid])
-                or e.get("policy_signature") != ai_evaluator.policy_signature()):
+        if (e.get("policy_version") != EVALUATION_POLICY_VERSION or e["semantic_hash"] != semantic_hash(self.data["checklist"]["criteria"])
+                or e["transcript_hash"] != digest(self.data["records"][cid])):
             return "Stale"
         return "Evaluated"
 
+    def require_evaluation_allowed(self, cid):
+        if not evaluation_enabled(self.data, cid):
+            raise HTTPException(409, "SWAP сохранён для просмотра. Оценка будет доступна после отдельной инструкции организаторов.")
+
+    def manual_review(self, cid):
+        failure = self.data.get("evaluation_errors", {}).get(cid, {})
+        return copy.deepcopy(failure.get("manual_review")) if self.status(cid) == "Review" else None
+
+    def evaluation_error(self, cid):
+        failure = self.data.get("evaluation_errors", {}).get(cid)
+        if not failure or failure.get("manual_review") or failure.get("transcript_hash") != digest(self.data["records"][cid]):
+            return None
+        code = failure.get("error_code", "legacy_error")
+        if code not in ai_evaluator.ERROR_MESSAGES:
+            code = "processing_error"
+        return {"code": code, "message": ai_evaluator.ERROR_MESSAGES[code], "timestamp": failure.get("timestamp")}
+
     def budget(self):
         b = self.data["budget"]
-        return {**b, "limit": None, "remaining": None,
+        setting = os.getenv("OPENAI_MAX_CALLS", "3").strip().lower()
+        limit = None if setting == "unlimited" else max(0, int(setting))
+        return {**b, "limit": limit, "remaining": None if limit is None else max(0, limit - b["attempts"]),
+                "unlimited": limit is None,
+                "external_blocked": self.data.get("ai_privacy", {}).get("block_external_ai", False),
                 "configured": bool(os.getenv("OPENAI_API_KEY")), "model": os.getenv("OPENAI_MODEL", "gpt-4o")}
 
 
@@ -247,7 +321,7 @@ class ImportConversation(BaseModel):
 
 class BatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    conversation_ids: list[str] = Field(min_length=1, max_length=5000)
+    conversation_ids: list[str] = Field(min_length=1, max_length=65)
 
 
 def create_app(store_path=None, dataset_file=None):
@@ -262,7 +336,7 @@ def create_app(store_path=None, dataset_file=None):
         store.import_data(json.loads(source.read_text(encoding="utf-8-sig")))
     app.add_middleware(CORSMiddleware, allow_origins=[origin.strip() for origin in os.getenv(
         "CORS_ORIGINS", "http://127.0.0.1:8000,http://localhost:8000").split(",") if origin.strip()],
-        allow_methods=["GET", "POST"], allow_headers=["Content-Type", "X-Role", "X-Supervisor-Token", "Range"],
+        allow_methods=["GET", "POST"], allow_headers=["Content-Type", "X-Role", "X-Supervisor-Token", "X-AI-Preview", "Range"],
         expose_headers=["Accept-Ranges", "Content-Range", "Content-Length"])
 
     def role(request, expected=None):
@@ -279,10 +353,14 @@ def create_app(store_path=None, dataset_file=None):
             raise HTTPException(404, "Диалог не найден")
         return store.data["records"][cid]
 
+    ai_requests = AIRequests(store, role, get_record)
+    app.state.ai_requests = ai_requests
+
     @app.get("/api/health")
     def health():
         with store.lock:
             return {"status": "ok", "records": len(store.data["records"]), "budget": store.budget(),
+                    "privacy": ai_requests.policy(), "assistant_budget": ai_requests.assistant_budget(),
                     "auth_mode": "supervisor-token" if os.getenv("QA_SUPERVISOR_TOKEN") else "local-demo"}
 
     @app.get("/api/conversations")
@@ -301,10 +379,13 @@ def create_app(store_path=None, dataset_file=None):
                     continue
                 first = next((m["text"] for m in r["transcript"] if m["speaker"] == "client"), "Диалог")
                 items.append({"id": cid, "title": r.get("title"), "language": r["language"], "channel": r["channel"], "preview": first,
+                              "dataset_group": record_group(store.data, cid), "evaluation_enabled": evaluation_enabled(store.data, cid),
+                              "manual_review": store.manual_review(cid),
                               "status": current_status, "score": e["final_score"] if e and current_status == "Evaluated" else None,
                               "has_gross_violation": bool(e and current_status == "Evaluated" and e["has_gross_violation"]),
                               "pending_appeals": sum(a["conversation_id"] == cid and a["status"] == "PENDING" for a in store.data["appeals"])})
             return {"items": items, "total": len(store.data["records"]), "group": store.data["dataset_group_id"],
+                    "groups": dataset_groups(store.data),
                     "evaluated": sum(store.status(cid) == "Evaluated" for cid in store.data["records"]),
                     "budget": store.budget()}
 
@@ -341,6 +422,7 @@ def create_app(store_path=None, dataset_file=None):
             if len(store.data["records"]) >= 5000:
                 raise HTTPException(409, "Достигнут лимит: 5000 диалогов.")
             store.data["records"] = {cid: record, **store.data["records"]}
+            store.data.setdefault("record_groups", {})[cid] = "UPLOADED"
             store.data.setdefault("uploaded_ids", []).append(cid)
             store.event("conversation_imported", "supervisor", conversation_id=cid, title=title,
                         messages=len(transcript))
@@ -353,6 +435,10 @@ def create_app(store_path=None, dataset_file=None):
             r = copy.deepcopy(get_record(cid))
             r["audio_url"] = f"/api/conversations/{cid}/audio?v={digest(r['audio_url'])[:16]}" if r.get("audio_url") else None
             return copy.deepcopy({**r, "status": store.status(cid), "evaluation": store.data["evaluations"].get(cid),
+                    "dataset_group": record_group(store.data, cid), "evaluation_enabled": evaluation_enabled(store.data, cid),
+                    "manual_review": store.manual_review(cid),
+                    "evaluation_error": store.evaluation_error(cid),
+                    "coaching": recommendations(store.data["evaluations"][cid], store.data["checklist"]["criteria"]) if store.status(cid) == "Evaluated" else [],
                     "appeals": [a for a in store.data["appeals"] if a["conversation_id"] == cid],
                     "history": store.data["history"].get(cid, [])})
 
@@ -378,7 +464,8 @@ def create_app(store_path=None, dataset_file=None):
             store.data["checklist"] = {"version": version, "criteria": criteria}
             count = 0
             for cid, e in store.data["evaluations"].items():
-                if cid in store.data["records"] and e["semantic_hash"] == semantic_hash(criteria) and e["transcript_hash"] == digest(store.data["records"][cid]):
+                if (cid in store.data["records"] and e.get("policy_version") == EVALUATION_POLICY_VERSION
+                        and e["semantic_hash"] == semantic_hash(criteria) and e["transcript_hash"] == digest(store.data["records"][cid])):
                     store.archive(cid)
                     e.update(score_evaluation(criteria, e["results"]), checklist_version=version, rescored_at=now())
                     count += 1
@@ -389,9 +476,10 @@ def create_app(store_path=None, dataset_file=None):
             return {**store.data["checklist"], "requires_ai": changed, "rescored": count,
                     "stale": sum(store.status(cid) == "Stale" for cid in store.data["records"])}
 
-    def run_evaluation(cid, force=False):
+    def run_evaluation(cid, force=False, entry=None):
         with store.lock:
             record = copy.deepcopy(get_record(cid))
+            store.require_evaluation_allowed(cid)
             status = store.status(cid)
             if status == "Evaluated" and not force:
                 return {"evaluation": store.data["evaluations"][cid], "cached": True, "budget": store.budget()}
@@ -401,38 +489,60 @@ def create_app(store_path=None, dataset_file=None):
                 raise HTTPException(409, "Сначала разрешите ожидающие апелляции")
             if not os.getenv("OPENAI_API_KEY"):
                 raise HTTPException(503, "OPENAI_API_KEY не настроен")
+            if store.budget()["remaining"] == 0:
+                raise HTTPException(429, "Лимит вызовов исчерпан. Изменение OPENAI_MAX_CALLS в .env требует осознанного решения и перезапуска сервера")
+            ai_requests.verify_entry(entry)
             config = copy.deepcopy(store.data["checklist"])
-            # Record the attempt durably before network access, including failed calls.
+            # Reserve durably before network access; failed attempts also consume the ceiling.
             store.data["budget"]["attempts"] += 1
             store.event("evaluation_started", "supervisor", conversation_id=cid, checklist_version=config["version"])
+            ai_requests.audit("supervisor", entry.get("audit_purpose", "evaluation_repeat" if force else "evaluation"), cid)
             store.save()
             store.active.add(cid)
         usage = {}
         try:
-            raw = ai_evaluator.evaluate(record, config["criteria"])
+            with ai_gateway.request_context(entry["prepared"], ai_requests.policy):
+                raw = ai_evaluator.evaluate(record, config["criteria"])
             usage = raw["usage"]
             evaluation = {**score_evaluation(config["criteria"], raw["results"]), "results": raw["results"],
                           "id": str(uuid.uuid4()), "created_at": now(), "checklist_version": config["version"],
                           "semantic_hash": semantic_hash(config["criteria"]), "transcript_hash": digest(record),
-                          "policy_signature": ai_evaluator.policy_signature(),
+                          "policy_version": EVALUATION_POLICY_VERSION,
                           "source": "openai", "model": raw["model"], "usage": raw["usage"]}
             with store.lock:
                 store.archive(cid)
                 store.data["evaluations"][cid] = evaluation
+                store.data.get("evaluation_errors", {}).pop(cid, None)
                 for key in ("prompt_tokens", "completion_tokens"):
                     store.data["budget"][key] += raw["usage"].get(key, 0)
                 store.event("evaluation_completed", "supervisor", conversation_id=cid, evaluation_id=evaluation["id"], usage=raw["usage"])
                 store.save()
                 return {"evaluation": evaluation, "cached": False, "budget": store.budget()}
+        except ai_evaluator.ManualReviewRequired as exc:
+            with store.lock:
+                for key in ("prompt_tokens", "completion_tokens"):
+                    store.data["budget"][key] += exc.usage.get(key, 0)
+                review = {"code": exc.code, "reason": exc.reason}
+                store.data.setdefault("evaluation_errors", {})[cid] = {"timestamp": now(), "transcript_hash": digest(record),
+                    "semantic_hash": semantic_hash(config["criteria"]), "policy_version": EVALUATION_POLICY_VERSION,
+                    "error_type": "ManualReviewRequired", "manual_review": review}
+                store.event("evaluation_manual_review", "supervisor", conversation_id=cid, usage=exc.usage)
+                store.save()
+                return {"status": "Review", "manual_review": review, "evaluation": copy.deepcopy(store.data["evaluations"].get(cid)),
+                        "cached": False, "budget": store.budget()}
         except Exception as exc:
+            error_code = (exc.public_error["code"] if isinstance(exc, ai_evaluator.EvaluationValidationError) else
+                          "provider_request_error" if isinstance(exc, ai_gateway.ProviderRequestError) else
+                          "preparation_error" if isinstance(exc, ai_gateway.PrivacyError) else
+                          "provider_error" if isinstance(exc, RuntimeError) and str(exc).startswith("OpenAI:") else "processing_error")
             with store.lock:
                 usage = getattr(exc, "usage", usage)
                 for key in ("prompt_tokens", "completion_tokens"):
                     store.data["budget"][key] += usage.get(key, 0)
-                store.event("evaluation_failed", "supervisor", conversation_id=cid, error_type=type(exc).__name__, usage=usage)
+                store.event("evaluation_failed", "supervisor", conversation_id=cid, error_type=type(exc).__name__, error_code=error_code, usage=usage)
+                store.data.setdefault("evaluation_errors", {})[cid] = {"timestamp": now(), "transcript_hash": digest(record), "error_type": type(exc).__name__, "error_code": error_code}
                 store.save()
-            # Known evaluator errors have deliberately sanitized messages.
-            detail = str(exc) if isinstance(exc, (ValueError, RuntimeError)) else "Некорректный ответ ИИ; оценка не сохранена"
+            detail = str(exc) if isinstance(exc, StorageError) else ai_evaluator.ERROR_MESSAGES[error_code]
             raise HTTPException(503 if isinstance(exc, StorageError) else 502, detail) from None
         finally:
             with store.lock:
@@ -440,28 +550,53 @@ def create_app(store_path=None, dataset_file=None):
 
     @app.post("/api/evaluate/{cid}")
     def evaluate_one(cid: str, request: Request, force: bool = False):
-        role(request, "supervisor")
-        return run_evaluation(cid, force)
+        actor = role(request, "supervisor")
+        with store.lock:
+            get_record(cid)
+            store.require_evaluation_allowed(cid)
+            if store.status(cid) == "Evaluated" and not force:
+                return run_evaluation(cid, force)
+            if store.active or any(a["conversation_id"] == cid and a["status"] == "PENDING" for a in store.data["appeals"]):
+                raise HTTPException(409, "Дождитесь завершения оценки и рассмотрения апелляций.")
+            ai_requests.check_budget()
+            ticket = ai_requests.consume(request.headers.get("x-ai-preview"), actor, "evaluation", {"conversation_id": cid, "force": force})
+            entry = ticket["entries"][0] if ticket["entries"] else None
+        return run_evaluation(cid, force, entry)
 
     @app.post("/api/evaluate-batch")
     def evaluate_batch(body: BatchRequest, request: Request):
-        role(request, "supervisor")
+        actor = role(request, "supervisor")
         ids = list(dict.fromkeys(body.conversation_ids))
         with store.lock:
             if store.active:
                 raise HTTPException(409, "Уже выполняется оценка. Дождитесь завершения")
             for cid in ids:
                 get_record(cid)
+                store.require_evaluation_allowed(cid)
                 if store.status(cid) != "Evaluated" and any(a["conversation_id"] == cid and a["status"] == "PENDING" for a in store.data["appeals"]):
                     raise HTTPException(409, "Сначала рассмотрите ожидающие апелляции")
-        completed = []
+            need = sum(store.status(cid) != "Evaluated" for cid in ids)
+            remaining = store.budget()["remaining"]
+            if remaining is not None and need > remaining:
+                raise HTTPException(429, "Пакет превышает оставшийся лимит. Выберите меньше диалогов")
+            entries = {}
+            if need:
+                ai_requests.check_budget(need)
+                ticket = ai_requests.consume(request.headers.get("x-ai-preview"), actor, "batch", {"conversation_ids": body.conversation_ids})
+                entries = {entry["spec"]["conversation_id"]: entry for entry in ticket["entries"]}
+                for entry in entries.values():
+                    entry["audit_purpose"] = "evaluation_batch"
+        completed, reviews = [], []
         for cid in ids:
             try:
-                result = run_evaluation(cid)
-                completed.append({"id": cid, "cached": result["cached"]})
+                result = run_evaluation(cid, entry=entries.get(cid))
+                if result.get("status") == "Review":
+                    reviews.append({"id": cid, **result["manual_review"]})
+                else:
+                    completed.append({"id": cid, "cached": result["cached"]})
             except HTTPException as exc:
-                return {"completed": completed, "stopped_at": cid, "error": exc.detail, "budget": store.budget()}
-        return {"completed": completed, "budget": store.budget()}
+                return {"completed": completed, "reviews": reviews, "stopped_at": cid, "error": exc.detail, "budget": store.budget()}
+        return {"completed": completed, "reviews": reviews, "budget": store.budget()}
 
     @app.post("/api/appeals/submit")
     def submit_appeal(body: SubmitAppeal, request: Request):
@@ -544,6 +679,22 @@ def create_app(store_path=None, dataset_file=None):
                 events = [e for e in events if e.get("conversation_id") == conversation_id or e.get("appeal", {}).get("conversation_id") == conversation_id]
             return {"events": copy.deepcopy(events)}
 
+    @app.post("/api/dataset/import")
+    async def import_dataset(request: Request):
+        role(request, "supervisor")
+        content = bytearray()
+        async for chunk in request.stream():
+            content.extend(chunk)
+            if len(content) > MAX_FILE_BYTES:
+                raise HTTPException(413, "Файл набора превышает 5 МБ")
+        try:
+            payload = json.loads(content.decode("utf-8-sig"))
+            group, records = unpack_dataset(payload)
+            store.import_data(payload)
+        except (ValueError, UnicodeError):
+            raise HTTPException(422, "Некорректный набор или номера диалогов совпадают с другим набором") from None
+        return {"group": group, "records": len(records), "total": len(store.data["records"])}
+
     @app.post("/api/dataset/refresh")
     def refresh(request: Request, group_id: str = Query("DEV", pattern=r"^[A-Za-z0-9_-]{1,40}$")):
         role(request, "supervisor")
@@ -559,7 +710,7 @@ def create_app(store_path=None, dataset_file=None):
             store.import_data(payload)
         except (requests.RequestException, ValueError):
             raise HTTPException(502, "Не удалось загрузить корректный датасет организаторов; сохранён предыдущий") from None
-        return {"group": store.data["dataset_group_id"], "records": len(store.data["records"])}
+        return {"group": store.data["dataset_group_id"], "records": len(unpack_dataset(payload)[1]), "total": len(store.data["records"])}
 
     @app.get("/api/conversations/{cid}/audio")
     def audio(cid: str):
@@ -578,6 +729,8 @@ def create_app(store_path=None, dataset_file=None):
         except OSError:
             raise HTTPException(503, "Не удалось сохранить запись. Проверьте свободное место.") from None
 
+    ai_requests.exercise = register_practice(app, store, role, get_record, ai_requests)
+    ai_requests.register(app)
     app.mount("/static", StaticFiles(directory=ROOT / "frontend"), name="static")
 
     @app.get("/")
