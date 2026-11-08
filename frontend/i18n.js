@@ -491,7 +491,7 @@ AI не смог надёжно оценить диалог. Проверьте 
 DEV · синтетические данные|DEV · синтетикалық деректер|DEV · synthetic data
 Какие ошибки повторяются чаще|Қай қателер жиі қайталанады|Most frequent issues
 По финальным оценкам с учётом апелляций. N/A и отсутствующие оценки не считаются ошибками. Частичное выполнение учитывается как замечание.|Апелляцияларды ескеретін соңғы бағалар бойынша. N/A және жоқ бағалар қате болып саналмайды. Ішінара орындалу ескерту ретінде саналады.|Based on final assessments including appeals. N/A and missing assessments are not errors. Partial compliance counts as an issue.
- применимых оценок · | қолданылатын баға · | applicable assessments · 
+ применимых оценок · | қолданылатын баға · | applicable assessments ·\u0020
 Диалоги и доказательства (|Диалогтар мен дәлелдер (|Conversations and evidence (
 В актуальных оценках этой выборки замечаний не найдено.|Осы іріктеменің өзекті бағаларында ескертулер табылмады.|No issues were found in the current assessments in this selection.
 В этой выборке нет актуальных оценок. Сводка ошибок пока недоступна.|Бұл іріктемеде өзекті бағалар жоқ. Қателер жиынтығы әзірге қолжетімсіз.|This selection has no current assessments. An issue summary is not available yet.
